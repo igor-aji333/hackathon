@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import sys
@@ -13,7 +14,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from airport_mcp.server import (
     StorageBackend, StorageConfig, CSV_PATH, DOWNLOAD_TIME_PATH,
-    download_csv, extract_apt_rwy_from_zip, get_current_subscription_url,
+    download_csv, extract_apt_rwy_from_zip, find_airport_row, get_current_subscription_url,
     get_subscription_info, load_data, needs_download, normalize_airport_id,
     parse_zip_date, query_airport, read_from_local, save_to_local,
     detect_environment
@@ -206,6 +207,29 @@ class TestAirportMCP:
         assert normalize_airport_id("KJFK") == "JFK"
         assert normalize_airport_id("klax") == "LAX"
         assert normalize_airport_id("kjfk") == "JFK"
+    
+    def test_find_airport_row_with_faa_id(self, tmp_path):
+        test_csv = b"ARPT_ID,ARPT_NAME\nLAX,LOS ANGELES\n"
+        df = pd.read_csv(io.BytesIO(test_csv))
+        
+        result = find_airport_row(df, "LAX")
+        assert len(result) == 1
+        assert result.iloc[0]["ARPT_ID"] == "LAX"
+    
+    def test_find_airport_row_with_icao(self, tmp_path):
+        test_csv = b"ARPT_ID,ARPT_NAME\nKLAX,LOS ANGELES INTERNATIONAL\n"
+        df = pd.read_csv(io.BytesIO(test_csv))
+        
+        result = find_airport_row(df, "KLAX")
+        assert len(result) == 1
+        assert result.iloc[0]["ARPT_ID"] == "KLAX"
+    
+    def test_find_airport_row_not_found(self, tmp_path):
+        test_csv = b"ARPT_ID,ARPT_NAME\nLAX,LOS ANGELES\n"
+        df = pd.read_csv(io.BytesIO(test_csv))
+        
+        result = find_airport_row(df, "JFK")
+        assert len(result) == 0
 
 
 class TestIntegration:

@@ -347,32 +347,47 @@ def normalize_airport_id(ident: str) -> str:
     return ident_upper
 
 
+def find_airport_row(df: pd.DataFrame, ident: str) -> pd.DataFrame:
+    """Find airport row with multiple lookup strategies."""
+    ident_upper = normalize_airport_id(ident)
+    
+    airport_df = df[df["ARPT_ID"] == ident_upper]
+    
+    if not airport_df.empty:
+        return airport_df
+    
+    try:
+        airport_df = df[df["ARPT_ID"].str.upper() == ident_upper]
+        if not airport_df.empty:
+            return airport_df
+    except Exception:
+        pass
+    
+    if ident.upper().startswith("K"):
+        airport_df = df[df["ARPT_ID"] == ident.upper()]
+        if not airport_df.empty:
+            return airport_df
+        try:
+            airport_df = df[df["ARPT_ID"].str.upper() == ident.upper()]
+            if not airport_df.empty:
+                return airport_df
+        except Exception:
+            pass
+    
+    return df[df["ARPT_ID"].str.lower() == ident.lower()] if len(df) > 0 else df.head(0)
+
+
 def query_airport(ident: str) -> dict[str, Any] | None:
     """Query airport by ICAO/FAA ID and return runway data."""
     df = load_data()
-    ident_normalized = normalize_airport_id(ident)
     
-    airport_df = df[df["ARPT_ID"] == ident_normalized]
-    
-    if airport_df.empty:
-        try:
-            mask = df["ARPT_ID"].str.upper() == ident_normalized
-            airport_df = df[mask]
-        except Exception:
-            pass
+    airport_df = find_airport_row(df, ident)
     
     if airport_df.empty:
         try:
             download_csv()
             df = load_data()
-            airport_df = df[df["ARPT_ID"] == ident_normalized]
-            
-            if airport_df.empty:
-                try:
-                    mask = df["ARPT_ID"].str.upper() == ident_normalized
-                    airport_df = df[mask]
-                except Exception:
-                    pass
+            airport_df = find_airport_row(df, ident)
         except Exception:
             return None
     
