@@ -11,10 +11,26 @@ import pandas as pd
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from airport_mcp.server import CSV_PATH, DOWNLOAD_TIME_PATH, download_csv, extract_apt_rwy_from_zip, get_current_subscription_url, get_subscription_info, load_data, needs_download, query_airport
+from airport_mcp.server import CSV_PATH, DOWNLOAD_TIME_PATH, download_csv, extract_apt_rwy_from_zip, get_current_subscription_url, get_subscription_info, load_data, needs_download, parse_zip_date, query_airport
 
 
 class TestAirportMCP:
+    def test_parse_zip_date_valid(self):
+        zip_url = "https://nfdc.faa.gov/webContent/28DaySub/extra/01_Oct_2026_APT_CSV.zip"
+        result = parse_zip_date(zip_url)
+        
+        assert result.year == 2026
+        assert result.month == 10
+        assert result.day == 1
+    
+    def test_parse_zip_date_january(self):
+        zip_url = "https://nfdc.faa.gov/webContent/28DaySub/extra/15_Jan_2027_APT_CSV.zip"
+        result = parse_zip_date(zip_url)
+        
+        assert result.year == 2027
+        assert result.month == 1
+        assert result.day == 15
+    
     def test_get_subscription_info_parses_current_section(self):
         html_with_multiple_sections = """
         <html>

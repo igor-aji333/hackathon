@@ -19,6 +19,24 @@ CSV_PATH = DATA_DIR / "apt_rwy.csv"
 DOWNLOAD_TIME_PATH = DATA_DIR / "download_time.txt"
 FAA_NASR_URL = "https://www.faa.gov/air_traffic/flight_info/aeronav/Aero_Data/NASR_Subscription/"
 
+MONTH_MAP = {
+    "Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4,
+    "May": 5, "Jun": 6, "Jul": 7, "Aug": 8,
+    "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12
+}
+
+
+def parse_zip_date(zip_url: str) -> datetime:
+    """Parse the date from the zip filename."""
+    match = re.search(r'(\d{2})_(\w{3})_(\d{4})', zip_url)
+    if match:
+        day = int(match.group(1))
+        month_str = match.group(2)
+        year = int(match.group(3))
+        month = MONTH_MAP.get(month_str, 1)
+        return datetime(year, month, day)
+    return datetime.now()
+
 
 def get_subscription_info() -> tuple[str, str]:
     """Get the current subscription date from FAA page (under 'Current' section only)."""
@@ -95,11 +113,13 @@ def extract_apt_rwy_from_zip(zip_url: str) -> None:
                 CSV_PATH.write_bytes(csv_content)
 
 
-def download_csv() -> None:
+def download_csv() -> str:
     """Download the runway data from FAA zip archive."""
     zip_url = get_current_subscription_url()
     extract_apt_rwy_from_zip(zip_url)
-    DOWNLOAD_TIME_PATH.write_text(datetime.now().isoformat())
+    download_date = parse_zip_date(zip_url)
+    DOWNLOAD_TIME_PATH.write_text(download_date.isoformat())
+    return download_date.isoformat()
 
 
 def needs_download() -> bool:
