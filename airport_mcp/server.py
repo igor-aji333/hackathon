@@ -356,9 +356,25 @@ def query_airport(ident: str) -> dict[str, Any] | None:
     
     if airport_df.empty:
         try:
-            airport_df = df[df["ARPT_ID"].str.upper() == ident_normalized]
+            mask = df["ARPT_ID"].str.upper() == ident_normalized
+            airport_df = df[mask]
         except Exception:
             pass
+    
+    if airport_df.empty:
+        try:
+            download_csv()
+            df = load_data()
+            airport_df = df[df["ARPT_ID"] == ident_normalized]
+            
+            if airport_df.empty:
+                try:
+                    mask = df["ARPT_ID"].str.upper() == ident_normalized
+                    airport_df = df[mask]
+                except Exception:
+                    pass
+        except Exception:
+            return None
     
     if airport_df.empty:
         return None
@@ -367,10 +383,12 @@ def query_airport(ident: str) -> dict[str, Any] | None:
     runways: list[dict[str, Any]] = []
     
     for _, row in airport_df.iterrows():
+        length_val = row.get("RWY_LEN")
+        width_val = row.get("RWY_WIDTH")
         runways.append({
             "rwy_id": row.get("RWY_ID"),
-            "length_ft": int(row["RWY_LEN"]) if pd.notna(row.get("RWY_LEN")) else None,
-            "width_ft": int(row["RWY_WIDTH"]) if pd.notna(row.get("RWY_WIDTH")) else None,
+            "length_ft": int(length_val) if pd.notna(length_val) else None,
+            "width_ft": int(width_val) if pd.notna(width_val) else None,
             "surface": row.get("SURFACE_TYPE_CODE"),
             "condition": row.get("COND"),
             "latitude_1": row.get("LAT1_DECIMAL"),
