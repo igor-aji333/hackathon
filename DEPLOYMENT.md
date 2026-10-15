@@ -31,6 +31,31 @@ uv pip install -r requirements.txt
 python -m airport_mcp.server
 ```
 
+## Storage Backends
+
+The server supports multiple storage backends for caching the CSV data:
+
+### Local Filesystem (default)
+Data is stored in `~/.airport_mcp_data/`:
+- `apt_rwy.csv` - Runway data
+- `download_time.txt` - Last download timestamp
+
+### AWS S3
+Set the following environment variables:
+```bash
+export AIRPORT_MCP_STORAGE_BACKEND=s3
+export AIRPORT_MCP_S3_BUCKET=your-bucket-name
+export AIRPORT_MCP_S3_KEY="airport_mcp/"  # Optional prefix
+```
+
+Install boto3:
+```bash
+pip install -e ".[s3]"
+```
+
+### Databricks
+Data is automatically stored to `/dbfs/mnt/airport_mcp_data/` when running inside Databricks (detected via `DATABRICKS_RUNTIME_VERSION` environment variable).
+
 ## MCP Client Configuration
 
 Add to your MCP client configuration:
@@ -49,13 +74,13 @@ Add to your MCP client configuration:
 
 ## Data Caching
 
-- Runway data is cached in `~/.airport_mcp_data/`
-- CSV file: `apt_rwy.csv`
-- Download timestamp: `download_time.txt`
-- Automatic re-download every 28 days or when data is missing
+- Runway data is cached for 28 days before automatic re-download
+- The cache timestamp is derived from the FAA zip filename date (not current time)
+- Data is read from all configured storage backends on load
 
 ## Troubleshooting
 
 - **Network issues**: Ensure internet connectivity to download FAA data
 - **Permission errors**: Check write permissions for `~/.airport_mcp_data/`
 - **Data not found**: Verify the airport identifier exists in FAA records
+- **S3 access denied**: Ensure AWS credentials are configured (via env vars or IAM role)
