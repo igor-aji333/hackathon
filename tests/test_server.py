@@ -11,17 +11,40 @@ import pandas as pd
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from airport_mcp.server import CSV_PATH, DOWNLOAD_TIME_PATH, download_csv, extract_apt_rwy_from_zip, get_current_subscription_url, load_data, needs_download, query_airport
+from airport_mcp.server import CSV_PATH, DOWNLOAD_TIME_PATH, download_csv, extract_apt_rwy_from_zip, get_current_subscription_url, get_subscription_info, load_data, needs_download, query_airport
 
 
 class TestAirportMCP:
+    def test_get_subscription_info_parses_current_section(self):
+        html_with_multiple_sections = """
+        <html>
+            <div>Preview</div>
+            <p>Subscription effective October 29, 2026</p>
+            <div id="current">
+                <p>Subscription effective October 01, 2026</p>
+            </div>
+            <div>Archives</div>
+            <p>Subscription effective September 03, 2026</p>
+        </html>
+        """
+        with patch('airport_mcp.server.requests.get') as mock_get:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.text = html_with_multiple_sections
+            mock_get.return_value = mock_response
+            
+            date, _ = get_subscription_info()
+            assert date == "October 01, 2026"
+    
     def test_get_current_subscription_url_format(self):
         with patch('airport_mcp.server.requests.get') as mock_get:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.text = """
             <html>
-                <p>Subscription effective October 01, 2026</p>
+                <div id="current">
+                    <p>Subscription effective October 01, 2026</p>
+                </div>
             </html>
             """
             mock_get.return_value = mock_response
@@ -29,6 +52,34 @@ class TestAirportMCP:
             url = get_current_subscription_url()
             assert "nfdc.faa.gov/webContent/28DaySub/extra/" in url
             assert "_APT_CSV.zip" in url
+            assert "01_Oct_2026" in url
+    
+    def test_get_subscription_info_ignores_preview_and_archives(self):
+        html_content = """
+        <html>
+            <div>Preview</div>
+            <p>Subscription effective October 29, 2026</p>
+            
+            <div id="current">
+                <p>Subscription effective October 01, 2026</p>
+            </div>
+            
+            <div>Archives</div>
+            <p>Subscription effective September 03, 2026</p>
+            <p>Subscription effective August 06, 2026</p>
+        </html>
+        """
+        with patch('airport_mcp.server.requests.get') as mock_get:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.text = html_content
+            mock_get.return_value = mock_response
+            
+            date, _ = get_subscription_info()
+            assert date == "October 01, 2026"
+            assert "Preview" not in date
+            assert "September" not in date
+            assert "August" not in date
     
     def test_extract_apt_rwy_from_zip(self, tmp_path):
         test_csv = b"ARPT_ID,RWY_ID,RWY_LEN\nJFK,04L,14000\nJFK,04R,14000\n"

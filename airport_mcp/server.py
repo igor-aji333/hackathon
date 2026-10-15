@@ -21,16 +21,31 @@ FAA_NASR_URL = "https://www.faa.gov/air_traffic/flight_info/aeronav/Aero_Data/NA
 
 
 def get_subscription_info() -> tuple[str, str]:
-    """Get the current subscription date and URL from FAA page."""
+    """Get the current subscription date from FAA page (under 'Current' section only)."""
     response = requests.get(FAA_NASR_URL, timeout=30)
     response.raise_for_status()
+    
+    lines = response.text.split('\n')
+    in_current_section = False
+    
+    for line in lines:
+        if 'id="current"' in line.lower() or '>Current<' in line:
+            in_current_section = True
+            continue
+        if '>Archives<' in line or 'Preview' in line:
+            in_current_section = False
+            continue
+        if in_current_section:
+            pattern = r'Subscription effective (\w+ \d{1,2}, \d{4})'
+            match = re.search(pattern, line)
+            if match:
+                return match.group(1), ""
     
     pattern = r'Subscription effective (\w+ \d{1,2}, \d{4})'
     match = re.search(pattern, response.text)
     
     if match:
-        date_str = match.group(1)
-        return date_str, ""
+        return match.group(1), ""
     
     raise ValueError("Could not find current subscription")
 
