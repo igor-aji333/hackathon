@@ -341,7 +341,7 @@ def normalize_airport_id(ident: str) -> str:
     """
     ident_upper = ident.upper()
     
-    if ident_upper.startswith("K") and len(ident_upper) == 6:
+    if ident_upper.startswith("K") and len(ident_upper) == 4:
         return ident_upper[1:]
     
     return ident_upper

@@ -224,12 +224,13 @@ class TestAirportMCP:
         assert len(result) == 1
         assert result.iloc[0]["ARPT_ID"] == "KLAX"
     
-    def test_find_airport_row_not_found(self, tmp_path):
-        test_csv = b"ARPT_ID,ARPT_NAME\nLAX,LOS ANGELES\n"
+    def test_find_airport_row_with_icao_normalized(self, tmp_path):
+        test_csv = b"ARPT_ID,ARPT_NAME\nLAX,LOS ANGELES INTERNATIONAL\n"
         df = pd.read_csv(io.BytesIO(test_csv))
         
-        result = find_airport_row(df, "JFK")
-        assert len(result) == 0
+        result = find_airport_row(df, "KLAX")
+        assert len(result) == 1
+        assert result.iloc[0]["ARPT_ID"] == "LAX"
 
 
 class TestIntegration:
