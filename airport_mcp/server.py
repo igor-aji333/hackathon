@@ -68,9 +68,6 @@ class StorageConfig:
 
 config = StorageConfig.from_env()
 
-CSV_PATH = config.local_path / "apt_rwy.csv" if config.local_path else Path.home() / ".airport_mcp_data" / "apt_rwy.csv"
-DOWNLOAD_TIME_PATH = config.local_path / "download_time.txt" if config.local_path else Path.home() / ".airport_mcp_data" / "download_time.txt"
-
 
 def detect_environment() -> StorageBackend:
     """Detect the current runtime environment."""
@@ -95,8 +92,9 @@ def get_base_data_dir() -> Path:
         return base_dir
 
 
-CSV_PATH = get_base_data_dir() / "apt_rwy.csv"
-DOWNLOAD_TIME_PATH = get_base_data_dir() / "download_time.txt"
+BASE_DATA_DIR = get_base_data_dir()
+CSV_PATH = BASE_DATA_DIR / "apt_rwy.csv"
+DOWNLOAD_TIME_PATH = BASE_DATA_DIR / "download_time.txt"
 
 
 def parse_zip_date(zip_url: str) -> datetime:
@@ -281,20 +279,18 @@ def load_data_from_storage() -> tuple[bytes, Optional[datetime]]:
     """Load data from the configured storage backend."""
     backend = detect_environment()
     
-    if config.backend == StorageBackend.S3 or backend == StorageBackend.S3:
-        if not config.s3_bucket:
-            csv_data, ts = read_from_local()
-            if not csv_data:
-                csv_data, ts = read_from_s3() if config.s3_bucket else (b"", None)
-            return csv_data, ts
-        return read_from_s3()
+    if backend == StorageBackend.S3:
+        if config.s3_bucket:
+            return read_from_s3()
     
     csv_data, ts = read_from_local()
     if csv_data:
         return csv_data, ts
     
     if config.s3_bucket:
-        return read_from_s3()
+        csv_data, ts = read_from_s3()
+        if csv_data:
+            return csv_data, ts
     
     return b"", None
 
@@ -311,7 +307,7 @@ def needs_download() -> bool:
     """Check if CSV needs to be downloaded (every 28 days)."""
     if not CSV_PATH.exists():
         csv_data, _ = load_data_from_storage()
-        if not csv_data and (not config.s3_bucket or not any(True for _ in [1])):
+        if not csv_data:
             return True
     
     _, last_download = load_data_from_storage()
@@ -354,13 +350,13 @@ def normalize_airport_id(ident: str) -> str:
 def query_airport(ident: str) -> dict[str, Any] | None:
     """Query airport by ICAO/FAA ID and return runway data."""
     df = load_data()
-    ident_upper = normalize_airport_id(ident)
+    ident_normalized = normalize_airport_id(ident)
     
-    airport_df = df[df["ARPT_ID"] == ident_upper]
+    airport_df = df[df["ARPT_ID"] == ident_normalized]
     
     if airport_df.empty:
         try:
-            airport_df = df[df["ARPT_ID"].str.upper() == ident_upper]
+            airport_df = df[df["ARPT_ID"].str.upper() == ident_normalized]
         except Exception:
             pass
     
