@@ -20,33 +20,46 @@ DOWNLOAD_TIME_PATH = DATA_DIR / "download_time.txt"
 FAA_NASR_URL = "https://www.faa.gov/air_traffic/flight_info/aeronav/Aero_Data/NASR_Subscription/"
 
 
-def get_current_subscription_url() -> str:
-    """Get the URL for the current subscription from FAA page."""
+def get_subscription_info() -> tuple[str, str]:
+    """Get the current subscription date and URL from FAA page."""
     response = requests.get(FAA_NASR_URL, timeout=30)
     response.raise_for_status()
     
-    pattern = r'Subscription effective (\d{2}-\w+-\d{4})'
+    pattern = r'Subscription effective (\w+ \d{1,2}, \d{4})'
     match = re.search(pattern, response.text)
     
     if match:
         date_str = match.group(1)
-        date_formatted = date_str.replace("-", "_")
-        week_name_map = {
-            "January": "Jan", "February": "Feb", "March": "Mar", "April": "Apr",
-            "May": "May", "June": "Jun", "July": "Jul", "August": "Aug",
-            "September": "Sep", "October": "Oct", "November": "Nov", "December": "Dec"
-        }
-        for full, short in week_name_map.items():
-            date_formatted = date_formatted.replace(full, short)
-        zip_filename = f"{date_formatted}_APT_CSV.zip"
-        return FAA_NASR_URL.rstrip("/") + "/" + zip_filename
-    
-    pattern = r'<a href="(/[^\"]+\.zip)"'
-    match = re.search(pattern, response.text)
-    if match:
-        return FAA_NASR_URL.rstrip("/") + match.group(1).lstrip("/")
+        return date_str, ""
     
     raise ValueError("Could not find current subscription")
+
+
+def get_current_subscription_url() -> str:
+    """Get the URL for the current subscription from FAA page."""
+    date_str, _ = get_subscription_info()
+    
+    month_map = {
+        "January": "Jan", "February": "Feb", "March": "Mar", "April": "Apr",
+        "May": "May", "June": "Jun", "July": "Jul", "August": "Aug",
+        "September": "Sep", "October": "Oct", "November": "Nov", "December": "Dec"
+    }
+    
+    for full, short in month_map.items():
+        date_str = date_str.replace(full, short)
+    
+    date_str = date_str.replace(" ", "_").replace(",", "")
+    date_parts = date_str.split("_")
+    if len(date_parts) >= 3:
+        month = date_parts[0]
+        day = date_parts[1].zfill(2)
+        year = date_parts[2]
+        formatted_date = f"{day}_{month}_{year}"
+    else:
+        formatted_date = date_str
+    
+    zip_url = f"https://nfdc.faa.gov/webContent/28DaySub/extra/{formatted_date}_APT_CSV.zip"
+    return zip_url
 
 
 def extract_apt_rwy_from_zip(zip_url: str) -> None:
