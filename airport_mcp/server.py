@@ -336,10 +336,25 @@ def load_data() -> pd.DataFrame:
     return pd.read_csv(io.BytesIO(csv_data))
 
 
+def normalize_airport_id(ident: str) -> str:
+    """Normalize airport ID to FAA format.
+    
+    FAA data uses FAA IDs like 'LAX', 'JFK'.
+    ICAO codes in US have 'K' prefix like 'KLAX', 'KJFK'.
+    This function converts ICAO to FAA ID for database lookup.
+    """
+    ident_upper = ident.upper()
+    
+    if ident_upper.startswith("K") and len(ident_upper) == 6:
+        return ident_upper[1:]
+    
+    return ident_upper
+
+
 def query_airport(ident: str) -> dict[str, Any] | None:
     """Query airport by ICAO/FAA ID and return runway data."""
     df = load_data()
-    ident_upper = ident.upper()
+    ident_upper = normalize_airport_id(ident)
     
     airport_df = df[df["ARPT_ID"] == ident_upper]
     

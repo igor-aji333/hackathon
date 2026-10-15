@@ -14,8 +14,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from airport_mcp.server import (
     StorageBackend, StorageConfig, CSV_PATH, DOWNLOAD_TIME_PATH,
     download_csv, extract_apt_rwy_from_zip, get_current_subscription_url,
-    get_subscription_info, load_data, needs_download, parse_zip_date,
-    query_airport, read_from_local, save_to_local, detect_environment
+    get_subscription_info, load_data, needs_download, normalize_airport_id,
+    parse_zip_date, query_airport, read_from_local, save_to_local,
+    detect_environment
 )
 
 
@@ -178,6 +179,30 @@ class TestAirportMCP:
                 with patch('airport_mcp.server.needs_download', return_value=False):
                     result = query_airport("JFK")
                     assert result is None
+    
+    def test_query_airport_icao_to_faa_conversion(self, tmp_path):
+        test_csv = b"ARPT_ID,ARPT_NAME,CITY,RWY_ID,RWY_LEN\nLAX,LOS ANGELES,CA,04L/22R,12000\n"
+        
+        csv_path = tmp_path / "apt_rwy.csv"
+        csv_path.write_bytes(test_csv)
+        time_path = tmp_path / "download_time.txt"
+        time_path.write_text(datetime.now().isoformat())
+        
+        with patch('airport_mcp.server.CSV_PATH', csv_path):
+            with patch('airport_mcp.server.DOWNLOAD_TIME_PATH', time_path):
+                with patch('airport_mcp.server.needs_download', return_value=False):
+                    result = query_airport("KLAX")
+                    
+                    assert result is not None
+                    assert result["icao_id"] == "LAX"
+    
+    def test_normalize_airport_id(self):
+        assert normalize_airport_id("LAX") == "LAX"
+        assert normalize_airport_id("KLAX") == "LAX"
+        assert normalize_airport_id("JFK") == "JFK"
+        assert normalize_airport_id("KJFK") == "JFK"
+        assert normalize_airport_id("klax") == "LAX"
+        assert normalize_airport_id("kjfk") == "JFK"
 
 
 class TestIntegration:
