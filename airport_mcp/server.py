@@ -266,7 +266,7 @@ def save_data(csv_content: bytes, timestamp: datetime) -> None:
     """Save data to the configured storage backend."""
     backend = detect_environment()
     
-    if config.storage_backend == StorageBackend.S3 or backend == StorageBackend.S3:
+    if config.backend == StorageBackend.S3 or backend == StorageBackend.S3:
         if not config.s3_bucket:
             raise ValueError("S3 bucket not configured. Set AIRPORT_MCP_S3_BUCKET environment variable.")
         save_to_s3(csv_content, timestamp)
@@ -281,7 +281,7 @@ def load_data_from_storage() -> tuple[bytes, Optional[datetime]]:
     """Load data from the configured storage backend."""
     backend = detect_environment()
     
-    if config.storage_backend == StorageBackend.S3 or backend == StorageBackend.S3:
+    if config.backend == StorageBackend.S3 or backend == StorageBackend.S3:
         if not config.s3_bucket:
             csv_data, ts = read_from_local()
             if not csv_data:
