@@ -11,7 +11,12 @@ import pandas as pd
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from airport_mcp.server import CSV_PATH, DOWNLOAD_TIME_PATH, download_csv, extract_apt_rwy_from_zip, get_current_subscription_url, get_subscription_info, load_data, needs_download, parse_zip_date, query_airport
+from airport_mcp.server import (
+    StorageBackend, StorageConfig, CSV_PATH, DOWNLOAD_TIME_PATH,
+    download_csv, extract_apt_rwy_from_zip, get_current_subscription_url,
+    get_subscription_info, load_data, needs_download, parse_zip_date,
+    query_airport, read_from_local, save_to_local, detect_environment
+)
 
 
 class TestAirportMCP:
@@ -194,6 +199,51 @@ class TestIntegration:
                     assert "icao_id" in parsed
                     assert "runways" in parsed
                     assert isinstance(parsed["runways"], list)
+
+
+class TestStorageBackends:
+    def test_storage_config_from_env_local(self):
+        with patch.dict(os.environ, {}, clear=True):
+            config = StorageConfig.from_env()
+            assert config.backend == StorageBackend.LOCAL
+    
+    def test_storage_config_from_env_s3(self):
+        with patch.dict(os.environ, {
+            "AIRPORT_MCP_STORAGE_BACKEND": "s3",
+            "AIRPORT_MCP_S3_BUCKET": "test-bucket",
+            "AIRPORT_MCP_S3_KEY": "test/prefix/"
+        }, clear=True):
+            config = StorageConfig.from_env()
+            assert config.backend == StorageBackend.S3
+            assert config.s3_bucket == "test-bucket"
+            assert config.s3_key == "test/prefix/"
+    
+    def test_detect_environment_local(self):
+        with patch.dict(os.environ, {}, clear=True):
+            env = detect_environment()
+            assert env == StorageBackend.LOCAL
+    
+    def test_detect_environment_databricks(self):
+        with patch.dict(os.environ, {"DATABRICKS_RUNTIME_VERSION": "13.3"}, clear=True):
+            env = detect_environment()
+            assert env == StorageBackend.DATABRICKS
+    
+    def test_save_and_read_local(self, tmp_path):
+        test_data = b"test,csv,data\n1,2,3\n"
+        timestamp = datetime(2026, 10, 1)
+        
+        with patch('airport_mcp.server.CSV_PATH', tmp_path / "apt_rwy.csv"):
+            with patch('airport_mcp.server.DOWNLOAD_TIME_PATH', tmp_path / "download_time.txt"):
+                save_to_local(test_data, timestamp)
+                
+                data, ts = read_from_local()
+                assert data == test_data
+                assert ts == timestamp
+    
+    def test_storage_backend_enum(self):
+        assert StorageBackend.LOCAL.value == "local"
+        assert StorageBackend.S3.value == "s3"
+        assert StorageBackend.DATABRICKS.value == "databricks"
 
 
 if __name__ == "__main__":
