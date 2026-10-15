@@ -99,9 +99,6 @@ class TestAirportMCP:
             
             date, _ = get_subscription_info()
             assert date == "October 01, 2026"
-            assert "Preview" not in date
-            assert "September" not in date
-            assert "August" not in date
     
     def test_extract_apt_rwy_from_zip(self, tmp_path):
         test_csv = b"ARPT_ID,RWY_ID,RWY_LEN\nJFK,04L,14000\nJFK,04R,14000\n"
@@ -154,17 +151,19 @@ class TestAirportMCP:
         
         with patch('airport_mcp.server.CSV_PATH', csv_path):
             with patch('airport_mcp.server.DOWNLOAD_TIME_PATH', time_path):
-                with patch('airport_mcp.server.needs_download', return_value=False):
-                    result = query_airport("JFK")
-                    
-                    assert result is not None
-                    assert result["icao_id"] == "JFK"
-                    assert result["name"] == "JOHN F KENNEDY INTERNATIONAL"
-                    assert result["city"] == "AIRPORT"
-                    assert result["state"] == "NY"
-                    assert len(result["runways"]) == 2
-                    assert result["runways"][0]["rwy_id"] == "04L/22R"
-                    assert result["runways"][0]["length_ft"] == 14000
+                with patch('airport_mcp.server.load_data_from_storage') as mock_load:
+                    mock_load.return_value = (test_csv, datetime.now())
+                    with patch('airport_mcp.server.needs_download', return_value=False):
+                        result = query_airport("JFK")
+                        
+                        assert result is not None
+                        assert result["icao_id"] == "JFK"
+                        assert result["name"] == "JOHN F KENNEDY INTERNATIONAL"
+                        assert result["city"] == "AIRPORT"
+                        assert result["state"] == "NY"
+                        assert len(result["runways"]) == 2
+                        assert result["runways"][0]["rwy_id"] == "04L/22R"
+                        assert result["runways"][0]["length_ft"] == 14000
     
     def test_query_airport_not_found(self, tmp_path):
         test_csv = b"ARPT_ID,RWY_ID,RWY_LEN\nLAX,04L,12000\n"
@@ -176,9 +175,11 @@ class TestAirportMCP:
         
         with patch('airport_mcp.server.CSV_PATH', csv_path):
             with patch('airport_mcp.server.DOWNLOAD_TIME_PATH', time_path):
-                with patch('airport_mcp.server.needs_download', return_value=False):
-                    result = query_airport("JFK")
-                    assert result is None
+                with patch('airport_mcp.server.load_data_from_storage') as mock_load:
+                    mock_load.return_value = (test_csv, datetime.now())
+                    with patch('airport_mcp.server.needs_download', return_value=False):
+                        result = query_airport("JFK")
+                        assert result is None
     
     def test_query_airport_icao_to_faa_conversion(self, tmp_path):
         test_csv = b"ARPT_ID,ARPT_NAME,CITY,RWY_ID,RWY_LEN\nLAX,LOS ANGELES,CA,04L/22R,12000\n"
@@ -190,11 +191,13 @@ class TestAirportMCP:
         
         with patch('airport_mcp.server.CSV_PATH', csv_path):
             with patch('airport_mcp.server.DOWNLOAD_TIME_PATH', time_path):
-                with patch('airport_mcp.server.needs_download', return_value=False):
-                    result = query_airport("KLAX")
-                    
-                    assert result is not None
-                    assert result["icao_id"] == "LAX"
+                with patch('airport_mcp.server.load_data_from_storage') as mock_load:
+                    mock_load.return_value = (test_csv, datetime.now())
+                    with patch('airport_mcp.server.needs_download', return_value=False):
+                        result = query_airport("KLAX")
+                        
+                        assert result is not None
+                        assert result["icao_id"] == "LAX"
     
     def test_normalize_airport_id(self):
         assert normalize_airport_id("LAX") == "LAX"
@@ -216,14 +219,16 @@ class TestIntegration:
         
         with patch('airport_mcp.server.CSV_PATH', csv_path):
             with patch('airport_mcp.server.DOWNLOAD_TIME_PATH', time_path):
-                with patch('airport_mcp.server.needs_download', return_value=False):
-                    result = query_airport("JFK")
-                    json_output = json.dumps(result, indent=2)
-                    
-                    parsed = json.loads(json_output)
-                    assert "icao_id" in parsed
-                    assert "runways" in parsed
-                    assert isinstance(parsed["runways"], list)
+                with patch('airport_mcp.server.load_data_from_storage') as mock_load:
+                    mock_load.return_value = (test_csv, datetime.now())
+                    with patch('airport_mcp.server.needs_download', return_value=False):
+                        result = query_airport("JFK")
+                        json_output = json.dumps(result, indent=2)
+                        
+                        parsed = json.loads(json_output)
+                        assert "icao_id" in parsed
+                        assert "runways" in parsed
+                        assert isinstance(parsed["runways"], list)
 
 
 class TestStorageBackends:
