@@ -25,19 +25,26 @@ def get_current_subscription_url() -> str:
     response = requests.get(FAA_NASR_URL, timeout=30)
     response.raise_for_status()
     
-    pattern = r'href="(/air_traffic/flight_info/aeronav/Aero_Data/NASR_Subscription/\d{4}-\d{2}-\d{2}/)"'
+    pattern = r'Subscription effective (\d{2}-\w+-\d{4})'
     match = re.search(pattern, response.text)
     
     if match:
-        return FAA_NASR_URL.rstrip("/") + match.group(1)
+        date_str = match.group(1)
+        date_formatted = date_str.replace("-", "_")
+        week_name_map = {
+            "January": "Jan", "February": "Feb", "March": "Mar", "April": "Apr",
+            "May": "May", "June": "Jun", "July": "Jul", "August": "Aug",
+            "September": "Sep", "October": "Oct", "November": "Nov", "December": "Dec"
+        }
+        for full, short in week_name_map.items():
+            date_formatted = date_formatted.replace(full, short)
+        zip_filename = f"{date_formatted}_APT_CSV.zip"
+        return FAA_NASR_URL.rstrip("/") + "/" + zip_filename
     
-    pattern = r'(Current.*?href="([^"]+\.zip)")'
-    match = re.search(pattern, response.text, re.DOTALL)
+    pattern = r'<a href="(/[^\"]+\.zip)"'
+    match = re.search(pattern, response.text)
     if match:
-        zip_path = match.group(2)
-        if zip_path.startswith("/"):
-            return FAA_NASR_URL.rstrip("/") + "/" + zip_path.lstrip("/")
-        return zip_path
+        return FAA_NASR_URL.rstrip("/") + match.group(1).lstrip("/")
     
     raise ValueError("Could not find current subscription")
 
@@ -62,21 +69,8 @@ def extract_apt_rwy_from_zip(zip_url: str) -> None:
 
 def download_csv() -> None:
     """Download the runway data from FAA zip archive."""
-    current_url = get_current_subscription_url()
-    
-    response = requests.get(current_url, timeout=30)
-    response.raise_for_status()
-    
-    zip_pattern = r'href="(/[^"]+\.zip)"'
-    match = re.search(zip_pattern, response.text)
-    
-    if match:
-        zip_relative = match.group(1)
-        zip_url = current_url.rstrip("/") + "/" + zip_relative.lstrip("/")
-        extract_apt_rwy_from_zip(zip_url)
-    else:
-        response.raise_for_status()
-    
+    zip_url = get_current_subscription_url()
+    extract_apt_rwy_from_zip(zip_url)
     DOWNLOAD_TIME_PATH.write_text(datetime.now().isoformat())
 
 
