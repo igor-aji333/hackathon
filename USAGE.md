@@ -81,3 +81,77 @@ If airport is not found:
   "error": "Airport 'XXX' not found"
 }
 ```
+
+## CLI Testing
+
+Test the server directly from command line:
+
+```bash
+# Run server in stdio mode
+python -m airport_mcp.server
+
+# Or use with stdio transport
+python -c "
+from airport_mcp.server import get_airport_runways
+import json
+print(get_airport_runways('JFK'))
+"
+```
+
+### Using with MCP Inspector
+```bash
+# Install MCP inspector
+npm install -g @modelcontextprotocol/inspector
+
+# Run inspector pointing to your server
+mcp-inspector python -m airport_mcp.server
+```
+
+## MCP Client Configuration
+
+### Opencode Configuration
+Add to `mcp.json`:
+```json
+{
+  "mcpServers": {
+    "airport": {
+      "command": "python",
+      "args": ["-m", "airport_mcp.server"],
+      "cwd": "/path/to/hackathon"
+    }
+  }
+}
+```
+
+### HTTP Transport Configuration
+For HTTP-based MCP clients, you can run the server with SSE:
+
+```bash
+# Run with HTTP transport (requires fastmcp[ssestream])
+python -m airport_mcp.server --transport sse --port 8080
+```
+
+Configure in opencode `.opencode/mcp.json`:
+```json
+{
+  "mcpServers": {
+    "airport": {
+      "url": "http://localhost:8080/sse"
+    }
+  }
+}
+```
+
+### Claude Desktop Configuration
+Add to `claude_desktop_config.json`:
+```json
+{
+  "mcpServers": {
+    "airport": {
+      "command": "python",
+      "args": ["-m", "airport_mcp.server"],
+      "cwd": "/path/to/hackathon"
+    }
+  }
+}
+```
