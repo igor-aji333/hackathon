@@ -1,5 +1,6 @@
 import io
 import json
+import logging
 import os
 import re
 import zipfile
@@ -12,6 +13,10 @@ from typing import Any, Optional
 import pandas as pd
 import requests
 from fastmcp import FastMCP
+
+# Setup basic logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 mcp = FastMCP("Airport MCP Server")
 
@@ -102,12 +107,9 @@ def get_subscription_info() -> str:
     html = response.text
     
     # Find Current section - try multiple strategies
-    # Strategy 1: Look for id="current" attribute
     current_match = re.search(r'id=["\']current["\']', html, re.IGNORECASE)
     
     if not current_match:
-        # Strategy 2: Look for "Current" heading followed by Subscription effective
-        # Find "Current" word as a standalone heading
         current_heading_match = re.search(
             r'(?i)(?:<[^>]*>)?\s*Current\s*(?:</[^>]*>)?\s*(?:\n|<)',
             html
@@ -115,7 +117,6 @@ def get_subscription_info() -> str:
         if current_heading_match:
             start_pos = current_heading_match.end()
         else:
-            # Strategy 3: Fallback - find "Current" text
             current_match = re.search(r'(?i)\bCurrent\b', html)
             if not current_match:
                 raise ValueError("Could not find Current section")
@@ -123,8 +124,6 @@ def get_subscription_info() -> str:
     else:
         start_pos = current_match.start()
     
-    # Extract section from Current position to next section boundary
-    # Look for next headings: Archives, Preview
     remaining_html = html[start_pos:]
     next_section_match = re.search(
         r'(?i)(?:<[^>]*>)?\s*(?:Archives|Preview)\s*(?:</[^>]*>)?',
@@ -134,29 +133,26 @@ def get_subscription_info() -> str:
     if next_section_match:
         current_section = remaining_html[:next_section_match.start()]
     else:
-        # Take reasonable chunk if no next section found
         current_section = remaining_html[:5000]
     
-    # Find subscription date in current section
     pattern = r'Subscription effective (\w+ \d{1,2}, \d{4})'
     match = re.search(pattern, current_section)
     if match:
         return match.group(1)
     
-    # If not found in bounded section, try more aggressive search
-    # But ensure we don't pick up Preview/Archives
-    # Search for Current heading and then find the first Subscription effective after it
     current_idx = html.find('Current')
     if current_idx != -1:
         after_current = html[current_idx:]
-        # Find first Subscription effective after Current
         match_after_current = re.search(pattern, after_current)
         if match_after_current:
-            # Verify it's before Archives/Preview
             archive_pos = re.search(r'(?i)Archives', after_current[match_after_current.end():])
             preview_pos = re.search(r'(?i)Preview', after_current[match_after_current.end():])
-            # If match is before Archives/Preview, return it
-            if match_after_current and (not archive_pos or not preview_pos or match_after_current.start() < min([p.start() if p else float('inf') for p in [archive_pos, preview_pos] if p])):
+            
+            # Fix: Provide default float('inf') to avoid ValueError on empty sequence
+            positions = [p.start() for p in [archive_pos, preview_pos] if p]
+            min_boundary = min(positions, default=float('inf'))
+            
+            if not archive_pos or not preview_pos or match_after_current.start() < min_boundary:
                 return match_after_current.group(1)
     
     raise ValueError("Could not find subscription date in Current section")
@@ -233,6 +229,7 @@ def read_from_s3() -> tuple[bytes, Optional[datetime]]:
     """Read CSV and timestamp from AWS S3."""
     try:
         import boto3
+        from botocore.exceptions import ClientError
         s3 = boto3.client('s3')
         
         csv_obj = s3.get_object(Bucket=config.s3_bucket, Key=f"{config.s3_key}apt_rwy.csv")
@@ -243,7 +240,12 @@ def read_from_s3() -> tuple[bytes, Optional[datetime]]:
         timestamp = datetime.fromisoformat(timestamp_str) if timestamp_str else None
         
         return csv_data, timestamp
-    except Exception:
+    except ImportError:
+        logger.error("boto3 is not installed. Unable to read from S3.")
+        return b"", None
+    except Exception as e:
+        # Fix: Catch and log specific errors instead of silently swallowing exceptions
+        logger.error(f"Failed to read from S3: {e}")
         return b"", None
 
 
@@ -292,16 +294,14 @@ def load_data_from_storage() -> tuple[bytes, Optional[datetime]]:
             csv_data, ts = read_from_s3()
             if csv_data:
                 return csv_data, ts
-            # Fall back to local if S3 read fails
+            
     elif backend == StorageBackend.DATABRICKS:
-        # Databricks uses local path configured in StorageConfig
         pass
     
     csv_data, ts = read_from_local()
     if csv_data:
         return csv_data, ts
     
-    # Final fallback to S3 if configured
     if config.s3_bucket:
         return read_from_s3()
     
@@ -320,10 +320,7 @@ def needs_download() -> bool:
     """Check if CSV needs to be downloaded (every 28 days)."""
     csv_data, last_download = load_data_from_storage()
     
-    if not csv_data:
-        return True
-    
-    if last_download is None:
+    if not csv_data or last_download is None:
         return True
     
     return (datetime.now() - last_download).days > 28
@@ -331,11 +328,11 @@ def needs_download() -> bool:
 
 def load_data() -> pd.DataFrame:
     """Load runway data from CSV, downloading if needed."""
-    csv_data, last_download = load_data_from_storage()
-    
-    if not csv_data or last_download is None or (datetime.now() - last_download).days > 28:
+    # Fix: Utilize the previously dead needs_download() function instead of repeating logic
+    if needs_download():
         download_csv()
-        csv_data, _ = load_data_from_storage()
+        
+    csv_data, _ = load_data_from_storage()
     
     if not csv_data:
         raise ValueError("Could not load runway data from any storage backend")
@@ -344,12 +341,7 @@ def load_data() -> pd.DataFrame:
 
 
 def normalize_airport_id(ident: str) -> str:
-    """Normalize airport ID to FAA format.
-    
-    FAA data uses FAA IDs like 'LAX', 'JFK'.
-    ICAO codes in US have 'K' prefix like 'KLAX', 'KJFK'.
-    This function converts ICAO to FAA ID for database lookup.
-    """
+    """Normalize airport ID to FAA format."""
     ident_upper = ident.upper()
     
     if ident_upper.startswith("K") and len(ident_upper) == 4:
@@ -362,7 +354,9 @@ def find_airport_row(df: pd.DataFrame, ident: str) -> pd.DataFrame:
     """Find airport row with multiple lookup strategies."""
     ident_upper = normalize_airport_id(ident)
     
-    mask = df["ARPT_ID"].str.upper() == ident_upper
+    # Fix: Avoid inefficient df["ARPT_ID"].str.upper() on whole column
+    # FAA CSV data inherently holds uppercase IDs
+    mask = df["ARPT_ID"] == ident_upper
     airport_df = df[mask]
     
     if not airport_df.empty:
@@ -442,3 +436,4 @@ def get_airport_runways(icao_or_faa_id: str) -> str:
 
 if __name__ == "__main__":
     mcp.run()
+
