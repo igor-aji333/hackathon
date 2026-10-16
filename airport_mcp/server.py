@@ -101,32 +101,63 @@ def get_subscription_info() -> str:
     
     html = response.text
     
-    # Find the Current section
+    # Find Current section - try multiple strategies
+    # Strategy 1: Look for id="current" attribute
     current_match = re.search(r'id=["\']current["\']', html, re.IGNORECASE)
-    if not current_match:
-        raise ValueError("Could not find Current section")
     
-    # Extract section from Current marker to next section boundary
-    start_pos = current_match.start()
-    # Look for next section markers: Archives, Preview, or end of relevant content
-    # Use non-greedy search for next heading
+    if not current_match:
+        # Strategy 2: Look for "Current" heading followed by Subscription effective
+        # Find "Current" word as a standalone heading
+        current_heading_match = re.search(
+            r'(?i)(?:<[^>]*>)?\s*Current\s*(?:</[^>]*>)?\s*(?:\n|<)',
+            html
+        )
+        if current_heading_match:
+            start_pos = current_heading_match.end()
+        else:
+            # Strategy 3: Fallback - find "Current" text
+            current_match = re.search(r'(?i)\bCurrent\b', html)
+            if not current_match:
+                raise ValueError("Could not find Current section")
+            start_pos = current_match.end()
+    else:
+        start_pos = current_match.start()
+    
+    # Extract section from Current position to next section boundary
+    # Look for next headings: Archives, Preview
+    remaining_html = html[start_pos:]
     next_section_match = re.search(
-        r'(>Archives<|Preview|id=["\']archives["\']|id=["\']preview["\'])',
-        html[start_pos:],
-        re.IGNORECASE
+        r'(?i)(?:<[^>]*>)?\s*(?:Archives|Preview)\s*(?:</[^>]*>)?',
+        remaining_html
     )
     
     if next_section_match:
-        current_section = html[start_pos:start_pos + next_section_match.start()]
+        current_section = remaining_html[:next_section_match.start()]
     else:
-        # If no next section found, take reasonable chunk
-        current_section = html[start_pos:start_pos + 5000]
+        # Take reasonable chunk if no next section found
+        current_section = remaining_html[:5000]
     
     # Find subscription date in current section
     pattern = r'Subscription effective (\w+ \d{1,2}, \d{4})'
     match = re.search(pattern, current_section)
     if match:
         return match.group(1)
+    
+    # If not found in bounded section, try more aggressive search
+    # But ensure we don't pick up Preview/Archives
+    # Search for Current heading and then find the first Subscription effective after it
+    current_idx = html.find('Current')
+    if current_idx != -1:
+        after_current = html[current_idx:]
+        # Find first Subscription effective after Current
+        match_after_current = re.search(pattern, after_current)
+        if match_after_current:
+            # Verify it's before Archives/Preview
+            archive_pos = re.search(r'(?i)Archives', after_current[match_after_current.end():])
+            preview_pos = re.search(r'(?i)Preview', after_current[match_after_current.end():])
+            # If match is before Archives/Preview, return it
+            if match_after_current and (not archive_pos or not preview_pos or match_after_current.start() < min([p.start() if p else float('inf') for p in [archive_pos, preview_pos] if p])):
+                return match_after_current.group(1)
     
     raise ValueError("Could not find subscription date in Current section")
 
