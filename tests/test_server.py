@@ -22,6 +22,10 @@ from airport_mcp.server import (
 
 
 class TestAirportMCP:
+    def test_parse_zip_date_invalid(self):
+        with pytest.raises(ValueError):
+            parse_zip_date("https://example.com/invalid.zip")
+    
     def test_parse_zip_date_valid(self):
         zip_url = "https://nfdc.faa.gov/webContent/28DaySub/extra/01_Oct_2026_APT_CSV.zip"
         result = parse_zip_date(zip_url)
@@ -56,7 +60,7 @@ class TestAirportMCP:
             mock_response.text = html_with_multiple_sections
             mock_get.return_value = mock_response
             
-            date, _ = get_subscription_info()
+            date = get_subscription_info()
             assert date == "October 01, 2026"
     
     def test_get_current_subscription_url_format(self):
@@ -98,7 +102,7 @@ class TestAirportMCP:
             mock_response.text = html_content
             mock_get.return_value = mock_response
             
-            date, _ = get_subscription_info()
+            date = get_subscription_info()
             assert date == "October 01, 2026"
     
     def test_extract_apt_rwy_from_zip(self, tmp_path):
@@ -108,39 +112,38 @@ class TestAirportMCP:
         with zipfile.ZipFile(zip_path, 'w') as zf:
             zf.writestr("extra/2026-10-01_APT_RWY.csv", test_csv)
         
-        with patch('airport_mcp.server.CSV_PATH', tmp_path / "apt_rwy.csv"):
-            with patch('airport_mcp.server.DOWNLOAD_TIME_PATH', tmp_path / "download_time.txt"):
-                extract_apt_rwy_from_zip(str(zip_path))
-                
-                assert (tmp_path / "apt_rwy.csv").exists()
-                df = pd.read_csv(tmp_path / "apt_rwy.csv")
-                assert len(df) == 2
-                assert df.iloc[0]["ARPT_ID"] == "JFK"
-    
-    def test_needs_download_no_file(self, tmp_path):
-        with patch('airport_mcp.server.CSV_PATH', tmp_path / "nonexistent.csv"):
-            with patch('airport_mcp.server.DOWNLOAD_TIME_PATH', tmp_path / "time.txt"):
-                assert needs_download() is True
-    
-    def test_needs_download_recent(self, tmp_path):
-        csv_path = tmp_path / "test.csv"
-        time_path = tmp_path / "time.txt"
-        csv_path.touch()
-        time_path.write_text(datetime.now().isoformat())
+        # Read zip file into bytes
+        with open(zip_path, 'rb') as f:
+            zip_content = f.read()
         
-        with patch('airport_mcp.server.CSV_PATH', csv_path):
-            with patch('airport_mcp.server.DOWNLOAD_TIME_PATH', time_path):
-                assert needs_download() is False
-    
-    def test_needs_download_old(self, tmp_path):
-        csv_path = tmp_path / "test.csv"
-        time_path = tmp_path / "time.txt"
-        csv_path.touch()
-        time_path.write_text(datetime.now().replace(year=2020).isoformat())
+        mock_response = MagicMock()
+        mock_response.content = zip_content
+        mock_response.raise_for_status = MagicMock()
         
-        with patch('airport_mcp.server.CSV_PATH', csv_path):
-            with patch('airport_mcp.server.DOWNLOAD_TIME_PATH', time_path):
-                assert needs_download() is True
+        with patch('airport_mcp.server.requests.get', return_value=mock_response):
+            csv_content, download_date = extract_apt_rwy_from_zip("https://example.com/01_Oct_2026_APT_CSV.zip")
+            
+            df = pd.read_csv(io.BytesIO(csv_content))
+            assert len(df) == 2
+            assert df.iloc[0]["ARPT_ID"] == "JFK"
+            assert download_date.year == 2026
+            assert download_date.month == 10
+    
+    def test_needs_download_no_file(self):
+        with patch('airport_mcp.server.load_data_from_storage', return_value=(b"", None)):
+            assert needs_download() is True
+    
+    def test_needs_download_recent(self):
+        with patch('airport_mcp.server.load_data_from_storage', return_value=(b"data", datetime.now())):
+            assert needs_download() is False
+    
+    def test_needs_download_old(self):
+        with patch('airport_mcp.server.load_data_from_storage', return_value=(b"data", datetime.now().replace(year=2020))):
+            assert needs_download() is True
+    
+    def test_needs_download_no_timestamp(self):
+        with patch('airport_mcp.server.load_data_from_storage', return_value=(b"data", None)):
+            assert needs_download() is True
     
     def test_query_airport_found(self, tmp_path):
         test_csv = b"ARPT_ID,ARPT_NAME,CITY,STATE_CODE,COUNTRY_CODE,RWY_ID,RWY_LEN,RWY_WIDTH,SURFACE_TYPE_CODE,COND,RWYG_CODE,LAT1_DECIMAL,LONG1_DECIMAL,LAT2_DECIMAL,LONG2_DECIMAL\nJFK,JOHN F KENNEDY INTERNATIONAL,AIRPORT,US,NY,04L/22R,14000,150,CONC,STD,RWY,40.641389,-73.778056,40.631389,-73.768056\nJFK,JOHN F KENNEDY INTERNATIONAL,AIRPORT,US,NY,04R/22L,14000,150,CONC,STD,RWY,40.640389,-73.778056,40.630389,-73.768056\n"

@@ -67,10 +67,7 @@ def detect_environment() -> StorageBackend:
     if os.environ.get("DATABRICKS_RUNTIME_VERSION"):
         return StorageBackend.DATABRICKS
     
-    if config.backend == StorageBackend.S3:
-        return StorageBackend.S3
-    
-    return StorageBackend.LOCAL
+    return config.backend
 
 
 def get_base_data_dir() -> Path:
@@ -94,42 +91,43 @@ def parse_zip_date(zip_url: str) -> datetime:
         year = int(match.group(3))
         month = MONTH_MAP.get(month_str, 1)
         return datetime(year, month, day)
-    return datetime.now()
+    raise ValueError(f"Could not parse date from zip URL: {zip_url}")
 
 
-def get_subscription_info() -> tuple[str, str]:
+def get_subscription_info() -> str:
     """Get the current subscription date from FAA page (under 'Current' section only)."""
     response = requests.get(FAA_NASR_URL, timeout=30)
     response.raise_for_status()
     
-    lines = response.text.split('\n')
-    in_current_section = False
+    html = response.text
+    # Try to find current section first
+    # Look for current section marker
+    current_match = re.search(r'id=["\']current["\']', html, re.IGNORECASE)
+    if current_match:
+        # Extract from current section onwards
+        current_section = html[current_match.start():]
+        # Stop at Archives or Preview
+        archives_match = re.search(r'>Archives<|Preview', current_section, re.IGNORECASE)
+        if archives_match:
+            current_section = current_section[:archives_match.start()]
+        
+        pattern = r'Subscription effective (\w+ \d{1,2}, \d{4})'
+        match = re.search(pattern, current_section)
+        if match:
+            return match.group(1)
     
-    for line in lines:
-        if 'id="current"' in line.lower() or '>Current<' in line:
-            in_current_section = True
-            continue
-        if '>Archives<' in line or 'Preview' in line:
-            in_current_section = False
-            continue
-        if in_current_section:
-            pattern = r'Subscription effective (\w+ \d{1,2}, \d{4})'
-            match = re.search(pattern, line)
-            if match:
-                return match.group(1), ""
-    
+    # Fallback to whole page search
     pattern = r'Subscription effective (\w+ \d{1,2}, \d{4})'
-    match = re.search(pattern, response.text)
-    
+    match = re.search(pattern, html)
     if match:
-        return match.group(1), ""
+        return match.group(1)
     
     raise ValueError("Could not find current subscription")
 
 
 def get_current_subscription_url() -> str:
     """Get the URL for the current subscription from FAA page."""
-    date_str, _ = get_subscription_info()
+    date_str = get_subscription_info()
     
     month_names_map = {
         "January": "Jan", "February": "Feb", "March": "Mar", "April": "Apr",
@@ -238,10 +236,12 @@ def save_data(csv_content: bytes, timestamp: datetime) -> None:
     """Save data to the configured storage backend."""
     backend = detect_environment()
     
-    if config.backend == StorageBackend.S3 or backend == StorageBackend.S3:
+    if backend == StorageBackend.S3:
         if not config.s3_bucket:
             raise ValueError("S3 bucket not configured. Set AIRPORT_MCP_S3_BUCKET environment variable.")
         save_to_s3(csv_content, timestamp)
+    elif backend == StorageBackend.DATABRICKS:
+        save_to_local(csv_content, timestamp)
     else:
         save_to_local(csv_content, timestamp)
 
@@ -252,16 +252,21 @@ def load_data_from_storage() -> tuple[bytes, Optional[datetime]]:
     
     if backend == StorageBackend.S3:
         if config.s3_bucket:
-            return read_from_s3()
+            csv_data, ts = read_from_s3()
+            if csv_data:
+                return csv_data, ts
+            # Fall back to local if S3 read fails
+    elif backend == StorageBackend.DATABRICKS:
+        # Databricks uses local path configured in StorageConfig
+        pass
     
     csv_data, ts = read_from_local()
     if csv_data:
         return csv_data, ts
     
+    # Final fallback to S3 if configured
     if config.s3_bucket:
-        csv_data, ts = read_from_s3()
-        if csv_data:
-            return csv_data, ts
+        return read_from_s3()
     
     return b"", None
 
@@ -276,24 +281,22 @@ def download_csv() -> str:
 
 def needs_download() -> bool:
     """Check if CSV needs to be downloaded (every 28 days)."""
-    if not CSV_PATH.exists():
-        csv_data, _ = load_data_from_storage()
-        if not csv_data:
-            return True
+    csv_data, last_download = load_data_from_storage()
     
-    _, last_download = load_data_from_storage()
+    if not csv_data:
+        return True
     
     if last_download is None:
-        return False
+        return True
     
     return (datetime.now() - last_download).days > 28
 
 
 def load_data() -> pd.DataFrame:
     """Load runway data from CSV, downloading if needed."""
-    csv_data, _ = load_data_from_storage()
+    csv_data, last_download = load_data_from_storage()
     
-    if not csv_data or needs_download():
+    if not csv_data or last_download is None or (datetime.now() - last_download).days > 28:
         download_csv()
         csv_data, _ = load_data_from_storage()
     
@@ -347,22 +350,19 @@ def query_airport(ident: str) -> dict[str, Any] | None:
         return None
     
     first = airport_df.iloc[0]
-    runways: list[dict[str, Any]] = []
     
+    def to_int(val):
+        try:
+            return int(float(val)) if pd.notna(val) else None
+        except (ValueError, TypeError):
+            return None
+    
+    runways = []
     for _, row in airport_df.iterrows():
-        length_val = row.get("RWY_LEN")
-        width_val = row.get("RWY_WIDTH")
-        
-        def to_int(val):
-            try:
-                return int(float(val)) if pd.notna(val) else None
-            except (ValueError, TypeError):
-                return None
-
         runways.append({
             "rwy_id": row.get("RWY_ID"),
-            "length_ft": to_int(length_val),
-            "width_ft": to_int(width_val),
+            "length_ft": to_int(row.get("RWY_LEN")),
+            "width_ft": to_int(row.get("RWY_WIDTH")),
             "surface": row.get("SURFACE_TYPE_CODE"),
             "condition": row.get("COND"),
             "latitude_1": row.get("LAT1_DECIMAL"),
