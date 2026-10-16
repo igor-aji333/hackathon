@@ -105,6 +105,48 @@ class TestAirportMCP:
             date = get_subscription_info()
             assert date == "October 01, 2026"
     
+    def test_get_subscription_info_current_section_only_with_preview_after(self):
+        """Test that Preview section after Current doesn't pollute parsing."""
+        html_content = """
+        <html>
+            <div id="current">
+                <p>Subscription effective October 01, 2026</p>
+            </div>
+            <div>Preview</div>
+            <p>Subscription effective October 29, 2026</p>
+            <div id="archives">
+                <p>Subscription effective September 03, 2026</p>
+            </div>
+        </html>
+        """
+        with patch('airport_mcp.server.requests.get') as mock_get:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.text = html_content
+            mock_get.return_value = mock_response
+            
+            date = get_subscription_info()
+            assert date == "October 01, 2026"
+    
+    def test_get_subscription_info_fails_without_current_section(self):
+        """Test that parsing fails if Current section is missing."""
+        html_content = """
+        <html>
+            <div>Preview</div>
+            <p>Subscription effective October 29, 2026</p>
+            <div>Archives</div>
+            <p>Subscription effective September 03, 2026</p>
+        </html>
+        """
+        with patch('airport_mcp.server.requests.get') as mock_get:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.text = html_content
+            mock_get.return_value = mock_response
+            
+            with pytest.raises(ValueError, match="Could not find Current section"):
+                get_subscription_info()
+    
     def test_extract_apt_rwy_from_zip(self, tmp_path):
         test_csv = b"ARPT_ID,RWY_ID,RWY_LEN\nJFK,04L,14000\nJFK,04R,14000\n"
         

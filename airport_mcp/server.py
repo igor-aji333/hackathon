@@ -100,29 +100,35 @@ def get_subscription_info() -> str:
     response.raise_for_status()
     
     html = response.text
-    # Try to find current section first
-    # Look for current section marker
-    current_match = re.search(r'id=["\']current["\']', html, re.IGNORECASE)
-    if current_match:
-        # Extract from current section onwards
-        current_section = html[current_match.start():]
-        # Stop at Archives or Preview
-        archives_match = re.search(r'>Archives<|Preview', current_section, re.IGNORECASE)
-        if archives_match:
-            current_section = current_section[:archives_match.start()]
-        
-        pattern = r'Subscription effective (\w+ \d{1,2}, \d{4})'
-        match = re.search(pattern, current_section)
-        if match:
-            return match.group(1)
     
-    # Fallback to whole page search
+    # Find the Current section
+    current_match = re.search(r'id=["\']current["\']', html, re.IGNORECASE)
+    if not current_match:
+        raise ValueError("Could not find Current section")
+    
+    # Extract section from Current marker to next section boundary
+    start_pos = current_match.start()
+    # Look for next section markers: Archives, Preview, or end of relevant content
+    # Use non-greedy search for next heading
+    next_section_match = re.search(
+        r'(>Archives<|Preview|id=["\']archives["\']|id=["\']preview["\'])',
+        html[start_pos:],
+        re.IGNORECASE
+    )
+    
+    if next_section_match:
+        current_section = html[start_pos:start_pos + next_section_match.start()]
+    else:
+        # If no next section found, take reasonable chunk
+        current_section = html[start_pos:start_pos + 5000]
+    
+    # Find subscription date in current section
     pattern = r'Subscription effective (\w+ \d{1,2}, \d{4})'
-    match = re.search(pattern, html)
+    match = re.search(pattern, current_section)
     if match:
         return match.group(1)
     
-    raise ValueError("Could not find current subscription")
+    raise ValueError("Could not find subscription date in Current section")
 
 
 def get_current_subscription_url() -> str:
