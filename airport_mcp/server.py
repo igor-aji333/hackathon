@@ -23,13 +23,6 @@ MONTH_MAP = {
     "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12
 }
 
-MONTH_NAMES = {
-    1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr",
-    5: "May", 6: "Jun", 7: "Jul", 8: "Aug",
-    9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec"
-}
-
-
 class StorageBackend(Enum):
     LOCAL = "local"
     S3 = "s3"
@@ -82,14 +75,9 @@ def detect_environment() -> StorageBackend:
 
 def get_base_data_dir() -> Path:
     """Get the base directory for data storage."""
-    if detect_environment() == StorageBackend.DATABRICKS and config.local_path:
-        return config.local_path
-    elif detect_environment() == StorageBackend.S3 and config.local_path:
-        return config.local_path
-    else:
-        base_dir = Path.home() / ".airport_mcp_data"
-        base_dir.mkdir(parents=True, exist_ok=True)
-        return base_dir
+    base_dir = config.local_path if config.local_path else Path.home() / ".airport_mcp_data"
+    base_dir.mkdir(parents=True, exist_ok=True)
+    return base_dir
 
 
 BASE_DATA_DIR = get_base_data_dir()
@@ -193,19 +181,15 @@ def save_to_s3(csv_content: bytes, timestamp: datetime) -> None:
         raise ImportError("boto3 is required for S3 storage. Install with: pip install boto3")
 
 
-def save_to_databricks(csv_content: bytes, timestamp: datetime) -> None:
-    """Save CSV and timestamp to Databricks filesystem."""
-    CSV_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CSV_PATH.write_bytes(csv_content)
-    DOWNLOAD_TIME_PATH.write_text(timestamp.isoformat())
-
-
 def read_from_local() -> tuple[bytes, Optional[datetime]]:
     """Read CSV and timestamp from local filesystem."""
     if CSV_PATH.exists():
         csv_data = CSV_PATH.read_bytes()
         timestamp_str = DOWNLOAD_TIME_PATH.read_text().strip() if DOWNLOAD_TIME_PATH.exists() else ""
-        timestamp = datetime.fromisoformat(timestamp_str) if timestamp_str else None
+        try:
+            timestamp = datetime.fromisoformat(timestamp_str) if timestamp_str else None
+        except ValueError:
+            timestamp = None
         return csv_data, timestamp
     return b"", None
 
@@ -226,16 +210,6 @@ def read_from_s3() -> tuple[bytes, Optional[datetime]]:
         return csv_data, timestamp
     except Exception:
         return b"", None
-
-
-def read_from_databricks() -> tuple[bytes, Optional[datetime]]:
-    """Read CSV and timestamp from Databricks filesystem."""
-    if CSV_PATH.exists():
-        csv_data = CSV_PATH.read_bytes()
-        timestamp_str = DOWNLOAD_TIME_PATH.read_text().strip() if DOWNLOAD_TIME_PATH.exists() else ""
-        timestamp = datetime.fromisoformat(timestamp_str) if timestamp_str else None
-        return csv_data, timestamp
-    return b"", None
 
 
 def extract_apt_rwy_from_zip(zip_url: str) -> tuple[bytes, datetime]:
@@ -270,9 +244,6 @@ def save_data(csv_content: bytes, timestamp: datetime) -> None:
         save_to_s3(csv_content, timestamp)
     else:
         save_to_local(csv_content, timestamp)
-    
-    if backend == StorageBackend.DATABRICKS:
-        save_to_databricks(csv_content, timestamp)
 
 
 def load_data_from_storage() -> tuple[bytes, Optional[datetime]]:
@@ -351,30 +322,19 @@ def find_airport_row(df: pd.DataFrame, ident: str) -> pd.DataFrame:
     """Find airport row with multiple lookup strategies."""
     ident_upper = normalize_airport_id(ident)
     
-    airport_df = df[df["ARPT_ID"] == ident_upper]
+    mask = df["ARPT_ID"].str.upper() == ident_upper
+    airport_df = df[mask]
     
     if not airport_df.empty:
         return airport_df
-    
-    try:
-        airport_df = df[df["ARPT_ID"].str.upper() == ident_upper]
-        if not airport_df.empty:
-            return airport_df
-    except Exception:
-        pass
-    
+        
     if ident.upper().startswith("K"):
-        airport_df = df[df["ARPT_ID"] == ident.upper()]
+        mask = df["ARPT_ID"] == ident.upper()
+        airport_df = df[mask]
         if not airport_df.empty:
             return airport_df
-        try:
-            airport_df = df[df["ARPT_ID"].str.upper() == ident.upper()]
-            if not airport_df.empty:
-                return airport_df
-        except Exception:
-            pass
-    
-    return df[df["ARPT_ID"].str.lower() == ident.lower()] if len(df) > 0 else df.head(0)
+
+    return df.head(0)
 
 
 def query_airport(ident: str) -> dict[str, Any] | None:
@@ -382,14 +342,6 @@ def query_airport(ident: str) -> dict[str, Any] | None:
     df = load_data()
     
     airport_df = find_airport_row(df, ident)
-    
-    if airport_df.empty:
-        try:
-            download_csv()
-            df = load_data()
-            airport_df = find_airport_row(df, ident)
-        except Exception:
-            return None
     
     if airport_df.empty:
         return None
@@ -400,10 +352,17 @@ def query_airport(ident: str) -> dict[str, Any] | None:
     for _, row in airport_df.iterrows():
         length_val = row.get("RWY_LEN")
         width_val = row.get("RWY_WIDTH")
+        
+        def to_int(val):
+            try:
+                return int(float(val)) if pd.notna(val) else None
+            except (ValueError, TypeError):
+                return None
+
         runways.append({
             "rwy_id": row.get("RWY_ID"),
-            "length_ft": int(length_val) if pd.notna(length_val) else None,
-            "width_ft": int(width_val) if pd.notna(width_val) else None,
+            "length_ft": to_int(length_val),
+            "width_ft": to_int(width_val),
             "surface": row.get("SURFACE_TYPE_CODE"),
             "condition": row.get("COND"),
             "latitude_1": row.get("LAT1_DECIMAL"),

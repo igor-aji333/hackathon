@@ -17,7 +17,7 @@ from airport_mcp.server import (
     download_csv, extract_apt_rwy_from_zip, find_airport_row, get_current_subscription_url,
     get_subscription_info, load_data, needs_download, normalize_airport_id,
     parse_zip_date, query_airport, read_from_local, save_to_local,
-    detect_environment
+    detect_environment, save_to_s3, read_from_s3
 )
 
 
@@ -278,11 +278,6 @@ class TestStorageBackends:
             env = detect_environment()
             assert env == StorageBackend.LOCAL
     
-    def test_detect_environment_databricks(self):
-        with patch.dict(os.environ, {"DATABRICKS_RUNTIME_VERSION": "13.3"}, clear=True):
-            env = detect_environment()
-            assert env == StorageBackend.DATABRICKS
-    
     def test_save_and_read_local(self, tmp_path):
         test_data = b"test,csv,data\n1,2,3\n"
         timestamp = datetime(2026, 10, 1)
@@ -294,7 +289,7 @@ class TestStorageBackends:
                 data, ts = read_from_local()
                 assert data == test_data
                 assert ts == timestamp
-    
+
     def test_storage_backend_enum(self):
         assert StorageBackend.LOCAL.value == "local"
         assert StorageBackend.S3.value == "s3"
