@@ -467,8 +467,15 @@ if __name__ == "__main__":
     settings = Settings()
     platform_port = os.getenv("DATABRICKS_APP_PORT") or os.getenv("PORT")
 
+
     if platform_port:
-        mcp.run(transport="sse", host="0.0.0.0", port=int(platform_port))
+        mcp.run(transport="streamable-http", host="0.0.0.0", port=int(platform_port))
+    elif settings.mcp_transport == "streamable-http":
+        mcp.run(
+            transport="streamable-http",
+            host=settings.mcp_host,
+            port=settings.mcp_port,
+        )
     elif settings.mcp_transport == "sse":
         mcp.run(
             transport="sse",
