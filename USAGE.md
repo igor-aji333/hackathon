@@ -128,7 +128,7 @@ For HTTP-based MCP clients, you can run the server with SSE:
 
 ```bash
 # Run with HTTP transport (requires fastmcp[ssestream])
-python -m airport_mcp.server --transport sse --port 8080
+MCP_TRANSPORT=streamable-http python -m airport_mcp.server
 ```
 
 Configure in opencode `.opencode/mcp.json`:
@@ -136,7 +136,7 @@ Configure in opencode `.opencode/mcp.json`:
 {
   "mcpServers": {
     "airport": {
-      "url": "http://localhost:8080/sse"
+      "url": "http://localhost:8000/sse"
     }
   }
 }

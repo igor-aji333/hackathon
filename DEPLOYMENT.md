@@ -72,6 +72,9 @@ Add to your MCP client configuration:
 }
 ```
 
+# Dataricks workspace/profile: dbc-aae0ba16-8727
+databricks auth login --host https://dbc-aae0ba16-8727.cloud.databricks.com
+
 ## Data Caching
 
 - Runway data is cached for 28 days before automatic re-download
@@ -84,3 +87,4 @@ Add to your MCP client configuration:
 - **Permission errors**: Check write permissions for `~/.airport_mcp_data/`
 - **Data not found**: Verify the airport identifier exists in FAA records
 - **S3 access denied**: Ensure AWS credentials are configured (via env vars or IAM role)
+
