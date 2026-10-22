@@ -75,6 +75,47 @@ Add to your MCP client configuration:
 # Dataricks workspace/profile: dbc-aae0ba16-8727
 databricks auth login --host https://dbc-aae0ba16-8727.cloud.databricks.com
 
+# Verify login:
+databricks current-user me
+
+# get the token:
+DATABRICKS_TOKEN="$(databricks auth token --output json | jq -r .access_token)"
+
+# Getting session id:
+curl -i -X POST "https://airport-7474654188777746.aws.databricksapps.com/mcp" \
+     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer $DATABRICKS_TOKEN" \
+     -H "Mcp-Protocol-Version: 2025-03-26" \
+     -d '{
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "initialize",
+       "params": {
+         "protocolVersion": "2025-03-26",
+         "capabilities": {},
+         "clientInfo": {"name": "curl-test", "version": "1.0.0"}
+       }
+     }'
+
+# Making a request:
+curl -X POST "https://airport-7474654188777746.aws.databricksapps.com/mcp" \
+     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer $DATABRICKS_TOKEN" \
+     -H "Mcp-Protocol-Version: 2025-03-26" \
+     -H "Mcp-Session-Id: <YOUR_SESSION_ID_HERE>" \
+     -d '{
+       "jsonrpc": "2.0",
+       "id": 2,
+       "method": "tools/call",
+       "params": {
+         "name": "get_airport_runways",
+         "arguments": {
+           "icao_or_faa_id": "JFK"
+         }
+       }
+     }'
+     
+
 ## Data Caching
 
 - Runway data is cached for 28 days before automatic re-download

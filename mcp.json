@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "airport-remote": {
+      "url": "https://airport-7474654188777746.aws.databricksapps.com/mcp",
+      "transport": "sse",
+      "headers": {
+        "Authorization": "Bearer <YOUR_DATABRICKS_TOKEN>"
+      }
+    }
+  }
+}
