@@ -18,17 +18,16 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-# Setup basic logging
-logging.basicConfig(level=logging.INFO)
+# Setup structured logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
-# Global cache for the dataset
-_CACHED_DF: Optional[pd.DataFrame] = None
-_LAST_DOWNLOAD_TIME: Optional[datetime] = None
-
-mcp = FastMCP("Airport MCP Server")
-
 FAA_NASR_URL = "https://www.faa.gov/air_traffic/flight_info/aeronav/Aero_Data/NASR_Subscription/"
+
+# --- Configuration & Storage ---
 
 class StorageBackend(Enum):
     LOCAL = "local"
@@ -45,10 +44,9 @@ class StorageConfig:
     @classmethod
     def from_env(cls) -> "StorageConfig":
         backend_str = os.environ.get("DATABRICKS_RUNTIME_VERSION") 
-        if backend_str:
-            backend = StorageBackend.DATABRICKS
-        else:
-            backend = StorageBackend(os.environ.get("AIRPORT_MCP_STORAGE_BACKEND", "local").lower())
+        backend = StorageBackend.DATABRICKS if backend_str else StorageBackend(
+            os.environ.get("AIRPORT_MCP_STORAGE_BACKEND", "local").lower()
+        )
         
         if backend == StorageBackend.S3:
             return cls(
@@ -57,18 +55,12 @@ class StorageConfig:
                 s3_key=os.environ.get("AIRPORT_MCP_S3_KEY", "airport_mcp/")
             )
         elif backend == StorageBackend.DATABRICKS:
-            return cls(
-                backend=backend,
-                local_path=Path("/dbfs/mnt/airport_mcp_data")
-            )
-        else:
-            return cls(
-                backend=backend,
-                local_path=Path.home() / ".airport_mcp_data"
-            )
+            return cls(backend=backend, local_path=Path("/dbfs/mnt/airport_mcp_data"))
+        
+        return cls(backend=backend, local_path=Path.home() / ".airport_mcp_data")
 
 class StorageManager:
-    """Manages data persistence with persistent connections and dependency injection."""
+    """Manages persistent connections and I/O for cached airport data."""
     def __init__(self, config: StorageConfig):
         self.config = config
         self._s3_client = None
@@ -105,7 +97,7 @@ class StorageManager:
                 time_obj = self.s3.get_object(Bucket=self.config.s3_bucket, Key=f"{self.config.s3_key}download_time.txt")
                 return parquet_obj['Body'].read(), datetime.fromisoformat(time_obj['Body'].read().decode().strip())
             except Exception as e:
-                logger.error(f"Failed to read from S3: {e}")
+                logger.error(f"S3 Read Error: {e}")
                 return b"", None
         else:
             if self.data_path.exists():
@@ -114,176 +106,172 @@ class StorageManager:
                 return self.data_path.read_bytes(), timestamp
             return b"", None
 
-storage = StorageManager(StorageConfig.from_env())
-
-# --- Data Models ---
+# --- Data Models (Agent-Facing) ---
 
 class Runway(BaseModel):
-    rwy_id: Optional[str] = Field(None, alias="RWY_ID")
-    length_ft: Optional[float] = Field(None, alias="RWY_LEN")
-    width_ft: Optional[float] = Field(None, alias="RWY_WIDTH")
-    surface: Optional[str] = Field(None, alias="SURFACE_TYPE_CODE")
-    condition: Optional[str] = Field(None, alias="COND")
-    latitude_1: Optional[str] = Field(None, alias="LAT1_DECIMAL")
-    longitude_1: Optional[str] = Field(None, alias="LONG1_DECIMAL")
-    latitude_2: Optional[str] = Field(None, alias="LAT2_DECIMAL")
-    longitude_2: Optional[str] = Field(None, alias="LONG2_DECIMAL")
-    lights: Optional[str] = Field(None, alias="RWY_LGT_CODE")
+    rwy_id: Optional[str] = Field(None, alias="RWY_ID", description="Runway identifier (e.g., '09/27', '18L/36R').")
+    length_ft: Optional[float] = Field(None, alias="RWY_LEN", description="Runway length in feet.")
+    width_ft: Optional[float] = Field(None, alias="RWY_WIDTH", description="Runway width in feet.")
+    surface: Optional[str] = Field(None, alias="SURFACE_TYPE_CODE", description="Surface material code (e.g., ASPH, CONC).")
+    condition: Optional[str] = Field(None, alias="COND", description="Current surface condition.")
+    latitude_1: Optional[str] = Field(None, alias="LAT1_DECIMAL", description="Latitude of the first runway threshold.")
+    longitude_1: Optional[str] = Field(None, alias="LONG1_DECIMAL", description="Longitude of the first runway threshold.")
+    latitude_2: Optional[str] = Field(None, alias="LAT2_DECIMAL", description="Latitude of the second runway threshold.")
+    longitude_2: Optional[str] = Field(None, alias="LONG2_DECIMAL", description="Longitude of the second runway threshold.")
+    lights: Optional[str] = Field(None, alias="RWY_LGT_CODE", description="Runway lighting system code.")
 
 class AirportInfo(BaseModel):
-    icao_id: Optional[str]
-    name: Optional[str]
-    city: Optional[str]
-    state: Optional[str]
-    country: Optional[str]
-    runways: List[Runway]
+    icao_id: Optional[str] = Field(None, description="The 3 or 4 letter ICAO or FAA identifier.")
+    name: Optional[str] = Field(None, description="Official name of the airport.")
+    city: Optional[str] = Field(None, description="City where the airport is located.")
+    state: Optional[str] = Field(None, description="State code.")
+    country: Optional[str] = Field(None, description="Country code.")
+    runways: List[Runway] = Field(default_factory=list, description="List of all runways available at this airport.")
 
-# --- Core Logic ---
-def get_subscription_date() -> datetime:
-    """Robustly parse the subscription date using BeautifulSoup."""
-    response = requests.get(FAA_NASR_URL, timeout=30)
-    response.raise_for_status()
-    soup = BeautifulSoup(response.text, "html.parser")
-    
-    dates = []
-    for element in soup.find_all(string=True):
-        if "Subscription effective" in element:
-            date_str = element.replace("Subscription effective", "").strip()
-            try:
-                # Parses e.g., "October 3, 2024"
-                dates.append(datetime.strptime(date_str, "%B %d, %Y"))
-            except ValueError:
-                continue
-                
-    if not dates:
-        raise ValueError("Could not find a valid subscription date on the FAA page.")
-        
-    # Filter for dates that have already gone into effect (past or today)
-    now = datetime.now()
-    past_dates = [d for d in dates if d <= now]
-    
-    if past_dates:
-        # The current dataset is the most recent date that is not in the future
-        return max(past_dates)
-        
-    # Fallback just in case logic fails
-    return min(dates)
+# --- Data Service ---
 
-def get_current_subscription_url() -> str:
-    """Constructs the FAA download URL using standard datetime formatting."""
-    sub_date = get_subscription_date()
-    formatted_date = sub_date.strftime("%d_%b_%Y") # e.g., 03_Oct_2024
-    return f"https://nfdc.faa.gov/webContent/28DaySub/extra/{formatted_date}_APT_CSV.zip"
+class AirportDataService:
+    """Encapsulates data ingestion, caching, and querying logic."""
+    def __init__(self, storage_manager: StorageManager):
+        self.storage = storage_manager
+        self.df: Optional[pd.DataFrame] = None
+        self.last_download: Optional[datetime] = None
 
-def download_and_extract_df() -> tuple[pd.DataFrame, datetime]:
-    """Downloads zip, extracts CSV, and returns a DataFrame and timestamp."""
-    zip_url = get_current_subscription_url()
-    download_date = get_subscription_date() # Syncs with URL date
-    
-    response = requests.get(zip_url, timeout=300)
-    response.raise_for_status()
-    
-    with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
-        csv_files = [f for f in zf.namelist() if f.endswith(".csv")]
-        apt_rwy = next((f for f in csv_files if "APT_RWY" in f), csv_files[0] if csv_files else None)
-        
-        if not apt_rwy:
-            raise ValueError("No CSV files found in zip archive")
-        
-        csv_content = zf.read(apt_rwy)
-        df = pd.read_csv(io.BytesIO(csv_content), dtype=str)
-        return df, download_date
-
-def initialize_data() -> None:
-    """Load or reload data into the global cache using Parquet and Pandas Indexing."""
-    global _CACHED_DF, _LAST_DOWNLOAD_TIME
-    
-    parquet_data, ts = storage.load()
-    
-    needs_download = not parquet_data or ts is None or (datetime.now() - ts).days > 28
-    
-    if needs_download:
-        logger.info("Downloading latest FAA dataset...")
-        df, ts = download_and_extract_df()
-        
-        # Clean and optimize DataFrame
-        min_non_na = len(df) / 2
-        df = df.dropna(axis=1, thresh=min_non_na)
-        
-        # O(1) Indexing on Airport ID
-        if "ARPT_ID" in df.columns:
-            df["ARPT_ID"] = df["ARPT_ID"].str.upper()
-            df = df.set_index("ARPT_ID")
+    def _get_subscription_date(self) -> datetime:
+        try:
+            response = requests.get(FAA_NASR_URL, timeout=15)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, "html.parser")
             
-        # Convert to Parquet for fast reads and compressed storage
-        parquet_bytes = df.to_parquet()
-        storage.save(parquet_bytes, ts)
-    else:
-        df = pd.read_parquet(io.BytesIO(parquet_data))
+            dates = []
+            for element in soup.find_all(string=True):
+                if "Subscription effective" in element:
+                    date_str = element.replace("Subscription effective", "").strip()
+                    try:
+                        dates.append(datetime.strptime(date_str, "%B %d, %Y"))
+                    except ValueError:
+                        continue
+                        
+            if not dates:
+                logger.warning("Could not parse subscription dates. Defaulting to current date.")
+                return datetime.now()
+                
+            now = datetime.now()
+            past_dates = [d for d in dates if d <= now]
+            return max(past_dates) if past_dates else min(dates)
+            
+        except requests.RequestException as e:
+            logger.error(f"Failed to fetch FAA subscription page: {e}")
+            raise
+
+    def _download_and_extract(self) -> tuple[pd.DataFrame, datetime]:
+        sub_date = self._get_subscription_date()
+        formatted_date = sub_date.strftime("%d_%b_%Y")
+        zip_url = f"https://nfdc.faa.gov/webContent/28DaySub/extra/{formatted_date}_APT_CSV.zip"
         
-    _CACHED_DF = df
-    _LAST_DOWNLOAD_TIME = ts
-    logger.info(f"Data loaded into memory. Timestamp: {_LAST_DOWNLOAD_TIME}")
+        logger.info(f"Downloading FAA dataset from {zip_url}")
+        response = requests.get(zip_url, timeout=120)
+        response.raise_for_status()
+        
+        with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
+            csv_files = [f for f in zf.namelist() if f.endswith(".csv")]
+            apt_rwy = next((f for f in csv_files if "APT_RWY" in f), csv_files[0] if csv_files else None)
+            
+            if not apt_rwy:
+                raise ValueError("Target CSV not found in FAA zip archive.")
+            
+            csv_content = zf.read(apt_rwy)
+            return pd.read_csv(io.BytesIO(csv_content), dtype=str), sub_date
 
-def load_data() -> pd.DataFrame:
-    global _CACHED_DF, _LAST_DOWNLOAD_TIME
-    if _CACHED_DF is None or _LAST_DOWNLOAD_TIME is None or (datetime.now() - _LAST_DOWNLOAD_TIME).days > 28:
-        initialize_data()
-    return _CACHED_DF
-
-def normalize_airport_id(ident: str) -> str:
-    ident_upper = ident.upper()
-    return ident_upper[1:] if ident_upper.startswith("K") and len(ident_upper) == 4 else ident_upper
-
-def query_airport(ident: str) -> dict[str, Any] | None:
-    df = load_data()
-    ident_upper = normalize_airport_id(ident)
-    
-    # O(1) Lookup using Pandas Index
-    if ident_upper not in df.index:
-        if ident.upper().startswith("K") and ident.upper() in df.index:
-            ident_upper = ident.upper()
+    def initialize(self) -> None:
+        parquet_data, ts = self.storage.load()
+        needs_download = not parquet_data or ts is None or (datetime.now() - ts).days > 28
+        
+        if needs_download:
+            try:
+                raw_df, ts = self._download_and_extract()
+                min_non_na = len(raw_df) / 2
+                clean_df = raw_df.dropna(axis=1, thresh=min_non_na)
+                
+                if "ARPT_ID" in clean_df.columns:
+                    clean_df["ARPT_ID"] = clean_df["ARPT_ID"].str.upper()
+                    clean_df = clean_df.set_index("ARPT_ID")
+                    
+                self.storage.save(clean_df.to_parquet(), ts)
+                self.df = clean_df
+                self.last_download = ts
+            except Exception as e:
+                logger.error(f"Data initialization failed: {e}. Attempting to use stale cache.")
+                if parquet_data:
+                    self.df = pd.read_parquet(io.BytesIO(parquet_data))
+                    self.last_download = ts
+                else:
+                    raise
         else:
+            self.df = pd.read_parquet(io.BytesIO(parquet_data))
+            self.last_download = ts
+            
+        logger.info(f"Airport Data Service initialized. Cache date: {self.last_download}")
+
+    def query(self, ident: str) -> dict[str, Any] | None:
+        # Re-initialize if data is missing or older than 28 days
+        if self.df is None or self.last_download is None or (datetime.now() - self.last_download).days > 28:
+            logger.info("Dataset is missing or expired. Refreshing data...")
+            self.initialize()
+            
+        ident_upper = ident.upper()
+        norm_ident = ident_upper[1:] if ident_upper.startswith("K") and len(ident_upper) == 4 else ident_upper
+        
+        lookup_id = norm_ident if norm_ident in self.df.index else ident_upper
+        if lookup_id not in self.df.index:
             return None
             
-    # Handle both single row (Series) and multiple rows (DataFrame) returns from loc
-    airport_data = df.loc[[ident_upper]]
+        airport_data = self.df.loc[[lookup_id]].copy()
+        airport_data[["RWY_LEN", "RWY_WIDTH"]] = airport_data[["RWY_LEN", "RWY_WIDTH"]].apply(pd.to_numeric, errors="coerce")
+        
+        records = airport_data.to_dict(orient="records")
+        runways = [
+            Runway(**{k: (None if pd.isna(v) else v) for k, v in record.items()})
+            for record in records
+        ]
+        
+        first_row = airport_data.iloc[0]
+        info = AirportInfo(
+            icao_id=lookup_id,
+            name=first_row.get("ARPT_NAME"),
+            city=first_row.get("CITY"),
+            state=first_row.get("STATE_CODE"),
+            country=first_row.get("COUNTRY_CODE"),
+            runways=runways
+        )
+        return info.model_dump(exclude_none=True)
+      
 
-    # Work on a copy to prevent SettingWithCopyWarning
-    # Work on a copy to prevent SettingWithCopyWarning
-    airport_data = airport_data.copy()
-    
-    # Vectorized cast to float (unparseable or missing values become NaN)
-    airport_data[["RWY_LEN", "RWY_WIDTH"]] = airport_data[["RWY_LEN", "RWY_WIDTH"]].apply(pd.to_numeric, errors="coerce")
-    
-    # Export to native Python dictionaries first
-    records = airport_data.to_dict(orient="records")
-    
-    # Clean NaNs in standard Python (much faster than pandas iterrows)
-    runways = [
-        Runway(**{k: (None if pd.isna(v) else v) for k, v in record.items()})
-        for record in records
-    ]
-    
-    first_row = airport_data.iloc[0]
+# --- MCP Application ---
 
-    info = AirportInfo(
-        icao_id=ident_upper,
-        name=first_row.get("ARPT_NAME"),
-        city=first_row.get("CITY"),
-        state=first_row.get("STATE_CODE"),
-        country=first_row.get("COUNTRY_CODE"),
-        runways=runways
-    )
-    
-    return info.model_dump(exclude_none=True)
+mcp = FastMCP("Airport MCP Server")
+data_service = AirportDataService(StorageManager(StorageConfig.from_env()))
 
 @mcp.tool()
 def get_airport_runways(icao_or_faa_id: str) -> str:
-    result = query_airport(icao_or_faa_id)
-    if result is None:
-        return json.dumps({"error": f"Airport '{icao_or_faa_id}' not found"}, indent=2)
-    return json.dumps(result, indent=2)
+    """
+    Retrieve comprehensive runway and structural information for a specific US airport.
+    
+    Use this tool when you need to know the physical layout of an airport, including 
+    the number of runways, their lengths, widths, and surface types (e.g., Asphalt, Concrete).
+    
+    Args:
+        icao_or_faa_id: The 3-letter FAA identifier (e.g., 'JFK', 'ORD') or 4-letter 
+                        ICAO identifier (e.g., 'KJFK', 'KORD') of the target airport.
+    """
+    try:
+        result = data_service.query(icao_or_faa_id)
+        if result is None:
+            return json.dumps({"error": f"Airport identifier '{icao_or_faa_id}' not found in the current FAA dataset."}, indent=2)
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Query execution failed for {icao_or_faa_id}: {e}")
+        return json.dumps({"error": "Internal server error occurred while retrieving airport data."}, indent=2)
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -293,16 +281,21 @@ class Settings(BaseSettings):
 
 @mcp.custom_route("/health", methods=["GET"])
 async def health_check(request: Request) -> JSONResponse:
-    return JSONResponse({"status": "healthy", "service": "airport"})
+    is_ready = data_service.df is not None
+    return JSONResponse({
+        "status": "healthy" if is_ready else "initializing", 
+        "service": "airport_mcp",
+        "cache_timestamp": data_service.last_download.isoformat() if data_service.last_download else None
+    })
 
 if __name__ == "__main__":
     settings = Settings()
     platform_port = os.getenv("DATABRICKS_APP_PORT") or os.getenv("PORT")
 
     try:
-        initialize_data()
+        data_service.initialize()
     except Exception as e:
-        logger.error(f"Failed to initialize data on startup: {e}")
+        logger.critical(f"Fatal initialization failure: {e}")
 
     if platform_port:
         mcp.run(transport="streamable-http", host="0.0.0.0", port=int(platform_port))
