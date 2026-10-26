@@ -22,6 +22,10 @@ from starlette.responses import JSONResponse
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Global cache for the dataset
+_CACHED_DF: Optional[pd.DataFrame] = None
+_LAST_DOWNLOAD_TIME: Optional[datetime] = None
+
 mcp = FastMCP("Airport MCP Server")
 
 FAA_NASR_URL = "https://www.faa.gov/air_traffic/flight_info/aeronav/Aero_Data/NASR_Subscription/"
@@ -329,24 +333,41 @@ def needs_download() -> bool:
     
     return (datetime.now() - last_download).days > 28
 
-
-def load_data() -> pd.DataFrame:
-    """Load runway data from CSV, downloading if needed, and drop columns with >50% NA."""
+def initialize_data() -> None:
+    """Load or reload the data into the global cache."""
+    global _CACHED_DF, _LAST_DOWNLOAD_TIME
+    
     if needs_download():
         download_csv()
         
-    csv_data, _ = load_data_from_storage()
+    csv_data, ts = load_data_from_storage()
     
     if not csv_data:
         raise ValueError("Could not load runway data from any storage backend")
     
     df = pd.read_csv(io.BytesIO(csv_data))
-    
-    # Calculate the minimum number of non-NA values required (50% of rows)
     min_non_na = len(df) / 2
     
-    # Drop columns that do not meet the threshold
-    return df.dropna(axis=1, thresh=min_non_na)
+    _CACHED_DF = df.dropna(axis=1, thresh=min_non_na)
+    _LAST_DOWNLOAD_TIME = ts
+    logger.info(f"Data loaded into memory. Timestamp: {_LAST_DOWNLOAD_TIME}")
+
+
+def load_data() -> pd.DataFrame:
+    """Return the cached dataset, reloading only if older than 28 days."""
+    global _CACHED_DF, _LAST_DOWNLOAD_TIME
+    
+    # Load for the first time if the cache is empty
+    if _CACHED_DF is None or _LAST_DOWNLOAD_TIME is None:
+        initialize_data()
+        return _CACHED_DF
+        
+    # Check if the cached data is older than 28 days
+    if (datetime.now() - _LAST_DOWNLOAD_TIME).days > 28:
+        logger.info("Cached data is older than 28 days. Reloading...")
+        initialize_data()
+        
+    return _CACHED_DF
 
 def normalize_airport_id(ident: str) -> str:
     """Normalize airport ID to FAA format."""
@@ -467,10 +488,14 @@ async def health_check(request: Request) -> JSONResponse:
     return JSONResponse({"status": "healthy", "service": "airport"})
 
 if __name__ == "__main__":
-
     settings = Settings()
     platform_port = os.getenv("DATABRICKS_APP_PORT") or os.getenv("PORT")
 
+    # Load data into memory at start-up
+    try:
+        initialize_data()
+    except Exception as e:
+        logger.error(f"Failed to initialize data on startup: {e}")
 
     if platform_port:
         mcp.run(transport="streamable-http", host="0.0.0.0", port=int(platform_port))
