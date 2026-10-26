@@ -399,7 +399,6 @@ def find_airport_row(df: pd.DataFrame, ident: str) -> pd.DataFrame:
 
     return df.head(0)
 
-
 def query_airport(ident: str) -> dict[str, Any] | None:
     """Query airport by ICAO/FAA ID and return runway data."""
     df = load_data()
@@ -411,26 +410,33 @@ def query_airport(ident: str) -> dict[str, Any] | None:
     
     first = airport_df.iloc[0]
     
-    def to_int(val):
-        try:
-            return int(float(val)) if pd.notna(val) else None
-        except (ValueError, TypeError):
-            return None
+    # Map CSV column names to target JSON keys
+    col_mapping = {
+        "RWY_ID": "rwy_id",
+        "RWY_LEN": "length_ft",
+        "RWY_WIDTH": "width_ft",
+        "SURFACE_TYPE_CODE": "surface",
+        "COND": "condition",
+        "LAT1_DECIMAL": "latitude_1",
+        "LONG1_DECIMAL": "longitude_1",
+        "LAT2_DECIMAL": "latitude_2",
+        "LONG2_DECIMAL": "longitude_2",
+        "RWY_LGT_CODE": "lights",
+    }
     
-    runways = []
-    for _, row in airport_df.iterrows():
-        runways.append({
-            "rwy_id": row.get("RWY_ID"),
-            "length_ft": to_int(row.get("RWY_LEN")),
-            "width_ft": to_int(row.get("RWY_WIDTH")),
-            "surface": row.get("SURFACE_TYPE_CODE"),
-            "condition": row.get("COND"),
-            "latitude_1": row.get("LAT1_DECIMAL"),
-            "longitude_1": row.get("LONG1_DECIMAL"),
-            "latitude_2": row.get("LAT2_DECIMAL"),
-            "longitude_2": row.get("LONG2_DECIMAL"),
-            "lights": row.get("RWY_LGT_CODE"),
-        })
+    # Select available columns (to avoid KeyError if a column is dropped) and rename
+    available_cols = {k: v for k, v in col_mapping.items() if k in airport_df.columns}
+    runways_df = airport_df[list(available_cols.keys())].rename(columns=available_cols)
+    
+    # Convert length and width to numeric (float)
+    if "length_ft" in runways_df:
+        runways_df["length_ft"] = pd.to_numeric(runways_df["length_ft"], errors="coerce")
+    if "width_ft" in runways_df:
+        runways_df["width_ft"] = pd.to_numeric(runways_df["width_ft"], errors="coerce")
+    
+    # Replace NaN with None so json.dumps() later parses them as standard null
+    runways_df = runways_df.where(pd.notna(runways_df), None)
+    runways = runways_df.to_dict(orient="records")
     
     return {
         "icao_id": first.get("ARPT_ID"),
@@ -440,7 +446,6 @@ def query_airport(ident: str) -> dict[str, Any] | None:
         "country": first.get("COUNTRY_CODE"),
         "runways": runways,
     }
-
 
 @mcp.tool()
 def get_airport_runways(icao_or_faa_id: str) -> str:
