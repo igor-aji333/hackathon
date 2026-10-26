@@ -16,7 +16,8 @@ from fastmcp import FastMCP
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, RedirectResponse
+
 
 # Setup structured logging
 logging.basicConfig(
@@ -287,6 +288,10 @@ async def health_check(request: Request) -> JSONResponse:
         "service": "airport_mcp",
         "cache_timestamp": data_service.last_download.isoformat() if data_service.last_download else None
     })
+
+@mcp.custom_route("/", methods=["GET"])
+async def root(request: Request) -> RedirectResponse:
+    return RedirectResponse(url="/health")
 
 if __name__ == "__main__":
     settings = Settings()
