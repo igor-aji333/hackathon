@@ -250,16 +250,20 @@ def query_airport(ident: str) -> dict[str, Any] | None:
     airport_data = df.loc[[ident_upper]]
 
     # Work on a copy to prevent SettingWithCopyWarning
+    # Work on a copy to prevent SettingWithCopyWarning
     airport_data = airport_data.copy()
     
     # Vectorized cast to float (unparseable or missing values become NaN)
     airport_data[["RWY_LEN", "RWY_WIDTH"]] = airport_data[["RWY_LEN", "RWY_WIDTH"]].apply(pd.to_numeric, errors="coerce")
     
-    # Replace all pandas missing values (NaN, NaT, pd.NA) with Python None
-    airport_data = airport_data.where(pd.notna(airport_data), None)
+    # Export to native Python dictionaries first
+    records = airport_data.to_dict(orient="records")
     
-    # Convert directly to a list of dictionaries and unpack into Pydantic models
-    runways = [Runway(**record) for record in airport_data.to_dict(orient="records")]
+    # Clean NaNs in standard Python (much faster than pandas iterrows)
+    runways = [
+        Runway(**{k: (None if pd.isna(v) else v) for k, v in record.items()})
+        for record in records
+    ]
     
     first_row = airport_data.iloc[0]
 
