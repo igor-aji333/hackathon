@@ -247,21 +247,22 @@ def query_airport(ident: str) -> dict[str, Any] | None:
             return None
             
     # Handle both single row (Series) and multiple rows (DataFrame) returns from loc
-    airport_data = df.loc[[ident_upper]] 
-    first_row = airport_data.iloc[0]
+    airport_data = df.loc[[ident_upper]]
+
+    # Work on a copy to prevent SettingWithCopyWarning
+    airport_data = airport_data.copy()
     
-    runways = []
-    for _, row in airport_data.iterrows():
-        # Clean numeric fields safely
-        length = float(row.get("RWY_LEN")) if pd.notna(row.get("RWY_LEN")) else None
-        width = float(row.get("RWY_WIDTH")) if pd.notna(row.get("RWY_WIDTH")) else None
-        
-        rwy_dict = row.to_dict()
-        rwy_dict["RWY_LEN"] = length
-        rwy_dict["RWY_WIDTH"] = width
-        
-        runways.append(Runway(**rwy_dict))
-        
+    # Vectorized cast to float (unparseable or missing values become NaN)
+    airport_data[["RWY_LEN", "RWY_WIDTH"]] = airport_data[["RWY_LEN", "RWY_WIDTH"]].apply(pd.to_numeric, errors="coerce")
+    
+    # Replace all pandas missing values (NaN, NaT, pd.NA) with Python None
+    airport_data = airport_data.where(pd.notna(airport_data), None)
+    
+    # Convert directly to a list of dictionaries and unpack into Pydantic models
+    runways = [Runway(**record) for record in airport_data.to_dict(orient="records")]
+    
+    first_row = airport_data.iloc[0]
+
     info = AirportInfo(
         icao_id=ident_upper,
         name=first_row.get("ARPT_NAME"),
