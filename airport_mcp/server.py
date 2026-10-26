@@ -331,8 +331,7 @@ def needs_download() -> bool:
 
 
 def load_data() -> pd.DataFrame:
-    """Load runway data from CSV, downloading if needed."""
-    # Fix: Utilize the previously dead needs_download() function instead of repeating logic
+    """Load runway data from CSV, downloading if needed, and drop columns with >50% NA."""
     if needs_download():
         download_csv()
         
@@ -341,8 +340,13 @@ def load_data() -> pd.DataFrame:
     if not csv_data:
         raise ValueError("Could not load runway data from any storage backend")
     
-    return pd.read_csv(io.BytesIO(csv_data))
-
+    df = pd.read_csv(io.BytesIO(csv_data))
+    
+    # Calculate the minimum number of non-NA values required (50% of rows)
+    min_non_na = len(df) / 2
+    
+    # Drop columns that do not meet the threshold
+    return df.dropna(axis=1, thresh=min_non_na)
 
 def normalize_airport_id(ident: str) -> str:
     """Normalize airport ID to FAA format."""
