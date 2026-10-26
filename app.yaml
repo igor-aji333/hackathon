@@ -24,5 +24,5 @@ command:
   [
     "/bin/sh",
     "-c",
-    "export PYTHONPATH=/app/python/source_code:$PYTHONPATH && python -m airport_mcp.server",
+    "export PYTHONPATH=/app/python/source_code:$PYTHONPATH && python airport_mcp/server.py",
   ]

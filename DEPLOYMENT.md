@@ -28,7 +28,7 @@ uv pip install -r requirements.txt
 ## Running the MCP Server
 
 ```bash
-python -m airport_mcp.server
+python airport_mcp/server.py
 ```
 
 ## Storage Backends
@@ -65,7 +65,7 @@ Add to your MCP client configuration:
   "mcpServers": {
     "airport": {
       "command": "python",
-      "args": ["-m", "airport_mcp.server"],
+      "args": ["airport_mcp/server.py"],
       "cwd": "/path/to/hackathon"
     }
   }

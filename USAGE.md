@@ -88,7 +88,7 @@ Test the server directly from command line:
 
 ```bash
 # Run server in stdio mode
-python -m airport_mcp.server
+python airport_mcp/server.py
 
 # Or use with stdio transport
 python -c "
@@ -104,7 +104,7 @@ print(get_airport_runways('JFK'))
 npm install -g @modelcontextprotocol/inspector
 
 # Run inspector pointing to your server
-mcp-inspector python -m airport_mcp.server
+mcp-inspector python airport_mcp/server.py
 ```
 
 ## MCP Client Configuration
@@ -116,7 +116,7 @@ Add to `mcp.json`:
   "mcpServers": {
     "airport": {
       "command": "python",
-      "args": ["-m", "airport_mcp.server"],
+      "args": ["airport_mcp/server.py"],
       "cwd": "/path/to/hackathon"
     }
   }
@@ -128,7 +128,7 @@ For HTTP-based MCP clients, you can run the server with SSE:
 
 ```bash
 # Run with HTTP transport (requires fastmcp[ssestream])
-MCP_TRANSPORT=streamable-http python -m airport_mcp.server
+MCP_TRANSPORT=streamable-http python airport_mcp/server.py
 ```
 
 Configure in opencode `.opencode/mcp.json`:
@@ -149,7 +149,7 @@ Add to `claude_desktop_config.json`:
   "mcpServers": {
     "airport": {
       "command": "python",
-      "args": ["-m", "airport_mcp.server"],
+      "args": ["airport_mcp/server.py"],
       "cwd": "/path/to/hackathon"
     }
   }

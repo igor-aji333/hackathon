@@ -139,23 +139,35 @@ class AirportInfo(BaseModel):
     runways: List[Runway]
 
 # --- Core Logic ---
-
 def get_subscription_date() -> datetime:
     """Robustly parse the subscription date using BeautifulSoup."""
     response = requests.get(FAA_NASR_URL, timeout=30)
     response.raise_for_status()
     soup = BeautifulSoup(response.text, "html.parser")
     
-    # Locate the Current section and find the date text
+    dates = []
     for element in soup.find_all(string=True):
         if "Subscription effective" in element:
             date_str = element.replace("Subscription effective", "").strip()
             try:
-                # E.g., parses "October 3, 2024"
-                return datetime.strptime(date_str, "%B %d, %Y")
+                # Parses e.g., "October 3, 2024"
+                dates.append(datetime.strptime(date_str, "%B %d, %Y"))
             except ValueError:
                 continue
-    raise ValueError("Could not find a valid subscription date on the FAA page.")
+                
+    if not dates:
+        raise ValueError("Could not find a valid subscription date on the FAA page.")
+        
+    # Filter for dates that have already gone into effect (past or today)
+    now = datetime.now()
+    past_dates = [d for d in dates if d <= now]
+    
+    if past_dates:
+        # The current dataset is the most recent date that is not in the future
+        return max(past_dates)
+        
+    # Fallback just in case logic fails
+    return min(dates)
 
 def get_current_subscription_url() -> str:
     """Constructs the FAA download URL using standard datetime formatting."""
@@ -201,7 +213,7 @@ def initialize_data() -> None:
         # O(1) Indexing on Airport ID
         if "ARPT_ID" in df.columns:
             df["ARPT_ID"] = df["ARPT_ID"].str.upper()
-            df.set_index("ARPT_ID", inplace=True)
+            df = df.set_index("ARPT_ID")
             
         # Convert to Parquet for fast reads and compressed storage
         parquet_bytes = df.to_parquet()
