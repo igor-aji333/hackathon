@@ -28,7 +28,8 @@ CSV_SUFFIX = ".csv"
 
 # --- Storage & Cache Configurations ---
 DEFAULT_S3_PREFIX = "airport_mcp/"
-DEFAULT_DATABRICKS_PATH = "/dbfs/mnt/airport_mcp_data"
+# In DataBricks notebook: CREATE VOLUME users.igor_v_filippov.airport_mcp_data;
+DEFAULT_DATABRICKS_PATH = "/Volumes/users/igor_v_filippov/airport_mcp_data"
 DEFAULT_LOCAL_DIR_NAME = ".airport_mcp_data"
 CACHE_EXPIRATION_DAYS = 28
 
