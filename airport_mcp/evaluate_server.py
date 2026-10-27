@@ -1,18 +1,21 @@
 import time
 import json
-from server import AirportDataService, StorageManager, StorageConfig
+from server import AirportRunwayManager
 
 def run_evaluation():
     print("Initializing Data Service (Testing Cache & Download Lifecycle)...")
     start_time = time.time()
     
     # 1. Initialization Test
-    storage = StorageManager(StorageConfig.from_env())
-    service = AirportDataService(storage)
-    service.initialize()
+    # The new manager internally handles StorageManager, StorageConfig, and FAADataService
+    manager = AirportRunwayManager()
+    
+    # Trigger initialization explicitly to measure startup/cache-load time
+    manager._prepare_data()
     init_time = time.time() - start_time
+    
     print(f"[SUCCESS] Initialization completed in {init_time:.2f}s")
-    print(f"Dataset Rows: {len(service.df)}, Cache Date: {service.last_download}")
+    print(f"Dataset Rows: {len(manager.client.df)}, Cache Date: {manager.client.last_download}")
 
     # 2. Input Validation & Functional Tests
     test_cases = [
@@ -27,7 +30,7 @@ def run_evaluation():
     for case in test_cases:
         q_start = time.time()
         try:
-            result = service.query(case["id"])
+            result = manager.query(case["id"])
             q_time = (time.time() - q_start) * 1000
             
             if case["expect_found"]:
