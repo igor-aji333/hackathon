@@ -11,7 +11,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse
 
-from faa_data_client import FAADataService, StorageConfig, StorageManager
+from .faa_data_client import FAADataService, StorageConfig, StorageManager
 
 logging.basicConfig(
     level=logging.INFO,
