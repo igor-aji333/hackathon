@@ -110,8 +110,8 @@ class TestAirportMCP:
     def mock_manager(self):
         manager = AirportRunwayManager()
         mock_df = pd.DataFrame([
-            {"ARPT_NAME": "JOHN F KENNEDY INTERNATIONAL", "CITY": "AIRPORT", "STATE_CODE": "NY", "COUNTRY_CODE": "US", "RWY_ID": "04L/22R", "RWY_LEN": "14000"},
-            {"ARPT_NAME": "JOHN F KENNEDY INTERNATIONAL", "CITY": "AIRPORT", "STATE_CODE": "NY", "COUNTRY_CODE": "US", "RWY_ID": "04R/22L", "RWY_LEN": "14000"}
+            {"ARPT_NAME": "JOHN F KENNEDY INTERNATIONAL", "CITY": "AIRPORT", "STATE_CODE": "NY", "COUNTRY_CODE": "US", "RWY_ID": "04L/22R", "RWY_LEN": "14000", "RWY_WIDTH": "150"},
+            {"ARPT_NAME": "JOHN F KENNEDY INTERNATIONAL", "CITY": "AIRPORT", "STATE_CODE": "NY", "COUNTRY_CODE": "US", "RWY_ID": "04R/22L", "RWY_LEN": "14000", "RWY_WIDTH": "150"}
         ], index=["JFK", "JFK"])
         
         manager.client.df = mock_df
@@ -119,7 +119,7 @@ class TestAirportMCP:
         
         # Mock _prepare_data to bypass network/disk checks during querying
         manager._prepare_data = MagicMock()
-        return manager
+        return manager    
 
     def test_query_airport_found(self, mock_manager):
         result = mock_manager.query("JFK")
