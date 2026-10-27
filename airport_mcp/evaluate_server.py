@@ -1,6 +1,6 @@
 import time
 import json
-from server import AirportRunwayManager
+from airport_mcp.server import AirportRunwayManager
 
 def run_evaluation():
     print("Initializing Data Service (Testing Cache & Download Lifecycle)...")
