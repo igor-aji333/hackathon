@@ -16,10 +16,11 @@ from airport_mcp.faa_data_client import (
     FAADataService, StorageBackend, StorageConfig, StorageManager,
     TIMESTAMP_FILENAME
 )
-from airport_mcp.server import AirportRunwayManager
+from airport_mcp.runway_tool import AirportRunwayManager
+from airport_mcp.runway_end_tool import AirportRunwayEndManager
+
 
 # --- MOCK DATA ---
-
 MOCK_HTML_CONTENT = """
 <html>
     <body>
@@ -34,8 +35,8 @@ def create_mock_zip_bytes(target_csv: str, content: bytes) -> bytes:
         zf.writestr(target_csv, content)
     return buf.getvalue()
 
-# --- FAA Data Client Tests ---
 
+# --- FAA Data Client Tests ---
 class TestFAADataClient:
     def test_get_subscription_date_valid(self):
         config = StorageConfig(backend=StorageBackend.LOCAL, local_path=Path("/tmp/mock"))
@@ -64,8 +65,8 @@ class TestFAADataClient:
             assert len(df) == 2
             assert df.iloc[0]["ARPT_ID"] == "JFK"
 
-# --- Storage Manager Tests ---
 
+# --- Storage Manager Tests ---
 class TestStorageManager:
     def test_storage_config_from_env_local(self):
         with patch.dict(os.environ, {}, clear=True):
@@ -92,20 +93,18 @@ class TestStorageManager:
         config = StorageConfig(backend=StorageBackend.LOCAL, local_path=tmp_path)
         manager = StorageManager(config)
         
-        # Test Cycle Timestamp
         timestamp = datetime(2026, 10, 1)
         manager.save_cycle_timestamp(timestamp)
         assert manager.load_cycle_timestamp() == timestamp
         
-        # Test Parquet I/O
         test_data = b"PARQUET_DATA_MOCK"
         dataset_name = "TEST_DATA"
         manager.save_parquet(dataset_name, test_data)
         assert manager.load_parquet(dataset_name) == test_data
 
-# --- Server Logic Tests ---
 
-class TestAirportMCP:
+# --- Server Logic Tests ---
+class TestAirportRunwayManager:
     @pytest.fixture
     def mock_manager(self):
         manager = AirportRunwayManager()
@@ -116,11 +115,9 @@ class TestAirportMCP:
         
         manager.client.df = mock_df
         manager.client.last_download = datetime(2026, 10, 1)
-        
-        # Mock _prepare_data to bypass network/disk checks during querying
         manager._prepare_data = MagicMock()
-        return manager    
-
+        return manager
+        
     def test_query_airport_found(self, mock_manager):
         result = mock_manager.query("JFK")
         
@@ -142,14 +139,45 @@ class TestAirportMCP:
         assert result is not None
         assert result["icao_id"] == "JFK"
 
-    def test_json_output_format(self, mock_manager):
-        result = mock_manager.query("JFK")
+
+class TestAirportRunwayEndManager:
+    @pytest.fixture
+    def mock_end_manager(self):
+        manager = AirportRunwayEndManager()
+        mock_df = pd.DataFrame([
+            {"CITY": "JAMAICA", "STATE_CODE": "NY", "COUNTRY_CODE": "US", "RWY_ID": "04L/22R", "RWY_END_ID": "04L", "RWY_END_ELEV": "12.5", "VISUAL_GLIDE_PATH_ANGLE": "3.0"},
+            {"CITY": "JAMAICA", "STATE_CODE": "NY", "COUNTRY_CODE": "US", "RWY_ID": "04L/22R", "RWY_END_ID": "22R", "RWY_END_ELEV": "11.1", "VISUAL_GLIDE_PATH_ANGLE": "3.0"}
+        ], index=["JFK", "JFK"])
+        
+        manager.client.df = mock_df
+        manager.client.last_download = datetime(2026, 10, 1)
+        manager._prepare_data = MagicMock()
+        return manager
+
+    def test_query_runway_end_found(self, mock_end_manager):
+        result = mock_end_manager.query("JFK")
+        
+        assert result is not None
+        assert result["icao_id"] == "JFK"
+        assert result["city"] == "JAMAICA"
+        assert len(result["runway_ends"]) == 2
+        assert result["runway_ends"][0]["rwy_end_id"] == "04L"
+        assert result["runway_ends"][0]["elevation_ft"] == 12.5
+        assert result["runway_ends"][0]["visual_glide_path_angle"] == 3.0
+
+    def test_query_runway_end_not_found(self, mock_end_manager):
+        result = mock_end_manager.query("LAX")
+        assert result is None
+
+    def test_query_runway_end_json_format(self, mock_end_manager):
+        result = mock_end_manager.query("JFK")
         json_output = json.dumps(result)
         
         parsed = json.loads(json_output)
         assert "icao_id" in parsed
-        assert "runways" in parsed
-        assert isinstance(parsed["runways"], list)
+        assert "runway_ends" in parsed
+        assert isinstance(parsed["runway_ends"], list)
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+    
