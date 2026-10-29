@@ -65,8 +65,18 @@ class AirportRunwayManager:
         airport_data = df.loc[[lookup_id]].copy()
         airport_data[["RWY_LEN", "RWY_WIDTH"]] = airport_data[["RWY_LEN", "RWY_WIDTH"]].apply(pd.to_numeric, errors="coerce")
         
+
         records = airport_data.to_dict(orient="records")
-        runways = [Runway(**{k: (None if pd.isna(v) else v) for k, v in record.items()}) for record in records]
+        runways = []
+        for record in records:
+            # Convert NAs or empty strings to None
+            r_dict = {k: (None if pd.isna(v) or str(v).strip() == "" else v) for k, v in record.items()}
+            rwy = Runway(**r_dict)
+            
+            # Drop the runway entirely if all meaningful payload fields are empty (e.g. 19X)
+            if not any([rwy.length_ft, rwy.width_ft, rwy.surface, rwy.condition, rwy.latitude_1, rwy.longitude_1, rwy.lights]):
+                continue
+            runways.append(rwy)
         
         first_row = airport_data.iloc[0]
         info = AirportInfo(
@@ -124,19 +134,35 @@ async def airport_get_runways(
                 "country": result.get("country"),
                 "items": paginated_runways
             }
-            return json.dumps(response_data, indent=2)
+            # Strip None values so they don't appear as 'null' in JSON
+            response_data = {k: v for k, v in response_data.items() if v is not None}
+            return json.dumps(response_data, indent=2)       
         else:
             md = [f"# Runways for {result.get('name')} ({result['icao_id']})"]
             md.append(f"**Location:** {result.get('city')}, {result.get('state')}, {result.get('country')}\n")
-            
+
             for r in paginated_runways:
                 length = f"{r.get('length_ft')} ft" if r.get('length_ft') else "Unknown"
                 width = f"{r.get('width_ft')} ft" if r.get('width_ft') else "Unknown"
+                
                 md.append(f"### Runway {r.get('rwy_id')}")
                 md.append(f"- **Dimensions**: {length} x {width}")
-                md.append(f"- **Surface**: {r.get('surface', 'Unknown')} (Condition: {r.get('condition', 'Unknown')})")
-                md.append(f"- **Coordinates**: {r.get('latitude_1')}, {r.get('longitude_1')}")
-                md.append(f"- **Lights**: {r.get('lights', 'None')}\n")
+                
+                surf = r.get('surface')
+                cond = r.get('condition')
+                if surf or cond:
+                    md.append(f"- **Surface**: {surf or 'Unknown'} (Condition: {cond or 'Unknown'})")
+                
+                lat = r.get('latitude_1')
+                lon = r.get('longitude_1')
+                if lat and lon:
+                    md.append(f"- **Coordinates**: {lat}, {lon}")
+                
+                lights = r.get('lights')
+                if lights:
+                    md.append(f"- **Lights**: {lights}")
+                    
+                md.append("\n")                        
             
             md.append("---")
             md.append(f"*Showing {count} of {total} items. (Offset: {offset})*")

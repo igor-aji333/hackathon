@@ -72,11 +72,17 @@ class AirportRunwayEndManager:
             airport_data[existing_num_cols] = airport_data[existing_num_cols].apply(pd.to_numeric, errors="coerce")
             
         records = airport_data.to_dict(orient="records")
-        runway_ends = [
-            RunwayEnd(**{k: (None if pd.isna(v) else v) for k, v in record.items()})
-            for record in records
-        ]
-        
+        runway_ends = []
+        for record in records:
+            # Convert NAs or empty strings to None
+            r_dict = {k: (None if pd.isna(v) or str(v).strip() == "" else v) for k, v in record.items()}
+            re = RunwayEnd(**r_dict)
+            
+            # Drop the runway end entirely if all meaningful payload fields are empty
+            if not any([re.latitude, re.longitude, re.elevation_ft, re.true_alignment, re.ils_type, re.approach_light_system, re.visual_glide_path_angle]):
+                continue
+            runway_ends.append(re)
+            
         first_row = airport_data.iloc[0]
         info = AirportRunwayEndInfo(
             icao_id=lookup_id,
@@ -131,24 +137,37 @@ async def airport_get_runway_ends(
                 "country": result.get("country"),
                 "items": paginated_ends
             }
+            # Strip None values so they don't appear as 'null' in JSON
+            response_data = {k: v for k, v in response_data.items() if v is not None}
             return json.dumps(response_data, indent=2)
-        else:
+       else:
             md = [f"# Runway Ends for {result['icao_id']}"]
             md.append("")
             for re in paginated_ends:
-                elev = f"{re.get('elevation_ft')} ft" if re.get('elevation_ft') is not None else "Unknown"
-                angle = f"{re.get('visual_glide_path_angle')} degrees" if re.get('visual_glide_path_angle') is not None else "N/A"
                 md.append(f"### Runway End {re.get('rwy_end_id')} (Runway {re.get('rwy_id')})")
-                md.append(f"- **Elevation**: {elev}")
-                md.append(f"- **Alignment**: {re.get('true_alignment', 'Unknown')}")
-                md.append(f"- **ILS Type**: {re.get('ils_type', 'N/A')}")
-                md.append(f"- **Glide Path Angle**: {angle}")
-            
-            md.append("\n---")
+                
+                elev = re.get('elevation_ft')
+                if elev is not None:
+                    md.append(f"- **Elevation**: {elev} ft")
+                    
+                alignment = re.get('true_alignment')
+                if alignment:
+                    md.append(f"- **Alignment**: {alignment}")
+                    
+                ils = re.get('ils_type')
+                if ils:
+                    md.append(f"- **ILS Type**: {ils}")
+                    
+                angle = re.get('visual_glide_path_angle')
+                if angle is not None:
+                    md.append(f"- **Glide Path Angle**: {angle} degrees")
+                    
+                md.append("\n---")
+                
             md.append(f"*Showing {count} of {total} items. (Offset: {offset})*")
             if has_more:
                 md.append(f"*Use `offset={next_offset}` to see more.*")
-            
+                
             return "\n".join(md)
 
     except Exception as e:
