@@ -1,0 +1,9 @@
+datasets:
+  airport-eval-0:
+    csv_path: datasets/airport-eval-0/examples/airport-eval-0.csv
+    input_keys:
+      - query
+    output_keys:
+      - responses
+    description: "Multi-tool queries assessing FAA runway dimensions, end elevations, and boundary adherence (4 questions)"
+
