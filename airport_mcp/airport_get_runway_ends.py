@@ -146,6 +146,11 @@ async def airport_get_runway_ends(
             for re in paginated_ends:
                 md.append(f"### Runway End {re.get('rwy_end_id')} (Runway {re.get('rwy_id')})")
                 
+                lat = re.get('latitude')
+                lon = re.get('longitude')
+                if lat and lon:
+                    md.append(f"- **Coordinates**: {lat}, {lon}")
+                
                 elev = re.get('elevation_ft')
                 if elev is not None:
                     md.append(f"- **Elevation**: {elev} ft")
@@ -169,6 +174,7 @@ async def airport_get_runway_ends(
                 md.append(f"*Use `offset={next_offset}` to see more.*")
                 
             return "\n".join(md)
+
 
     except Exception as e:
         logger.error(f"Runway Ends query execution failed for {icao_or_faa_id}: {e}")
