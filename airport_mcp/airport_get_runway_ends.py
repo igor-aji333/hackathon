@@ -130,7 +130,7 @@ async def airport_get_runway_ends(
             md.append("")
             for re in paginated_ends:
                 elev = f"{re.get('elevation_ft')} ft" if re.get('elevation_ft') is not None else "Unknown"
-                angle = f"{re.get('visual_glide_path_angle')}°" if re.get('visual_glide_path_angle') is not None else "N/A"
+                angle = f"{re.get('visual_glide_path_angle')} degrees" if re.get('visual_glide_path_angle') is not None else "N/A"
                 md.append(f"### Runway End {re.get('rwy_end_id')} (Runway {re.get('rwy_id')})")
                 md.append(f"- **Elevation**: {elev}")
                 md.append(f"- **Alignment**: {re.get('true_alignment', 'Unknown')}")
