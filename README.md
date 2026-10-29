@@ -144,7 +144,7 @@ Add to `.opencode/mcp.json` using SSE:
 **CLI Testing:**
 
 ```bash
-python -c "from airport_mcp.airport_get_runways import airport_get_runways; print(airport_get_runways('JFK'))"
+python -c "import asyncio; from airport_mcp.airport_get_runways import airport_get_runways; print(asyncio.run(airport_get_runways('DCA')))"
 
 ```
 

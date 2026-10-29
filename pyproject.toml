@@ -7,7 +7,7 @@ name = "airport-mcp"
 version = "0.2.0"
 description = "FastMCP server for querying FAA airport runway data."
 requires-python = ">=3.13"
-license = {text = "Public Domain"}
+license = "Unlicense"
 authors = [
     {name = "Igor Filippov"}
 ] # <-- FIXED
@@ -49,3 +49,6 @@ dev = [
     "pandas>=2.0.0",
     "pyyaml>=6.0.0"
 ] # <-- FIXED
+
+[tool.setuptools]
+packages = ["airport_mcp"]

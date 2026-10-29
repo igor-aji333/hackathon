@@ -91,10 +91,7 @@ Test the server directly from command line:
 python -m airport_mcp.server
 
 # Or use with stdio transport
-python -c "
-from airport_mcp.airport_get_runways import airport_get_runways
-import json
-print(airport_get_runways('JFK'))
+python -c "import asyncio; from airport_mcp.airport_get_runways import airport_get_runways; print(asyncio.run(airport_get_runways('JFK')))"
 "
 ```
 
