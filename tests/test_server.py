@@ -150,12 +150,13 @@ class TestAirportRunwayManager:
     @pytest.mark.asyncio
     async def test_prepare_data_drops_columns_and_rows(self):
         manager = AirportRunwayManager()
-        # Mock dataframe where MOSTLY_NA_COL has >50% NA values.
-        # LAX and ORD have no valid data other than identifiers.
+        # Mock dataframe with 3 rows. RWY_LEN has 2 valid (passes 50% thresh).
+        # MOSTLY_NA_COL has 1 valid (dropped).
+        # LAX row will have all NAs in remaining data columns (dropped).
         mock_df = pd.DataFrame({
-            "ARPT_ID": ["JFK", "LAX", "ORD"],
-            "RWY_ID": ["04L", "24R", "10L"],
-            "RWY_LEN": ["14000", pd.NA, pd.NA],
+            "ARPT_ID": ["JFK", "BOS", "LAX"],
+            "RWY_ID": ["04L", "09", "24R"],
+            "RWY_LEN": ["14000", "10000", pd.NA],
             "MOSTLY_NA_COL": [pd.NA, pd.NA, "TEST"]
         })
         manager.client.df = mock_df
@@ -165,13 +166,14 @@ class TestAirportRunwayManager:
         await manager._prepare_data()
         df = manager.client.df
 
-        # MOSTLY_NA_COL should be dropped (2/3 NA)
+        # MOSTLY_NA_COL should be dropped
         assert "MOSTLY_NA_COL" not in df.columns
-        # After column drop, LAX and ORD only have ARPT_ID/RWY_ID remaining, so they should be dropped
-        assert len(df) == 1
-        assert "JFK" in df.index        
-
-
+        # RWY_LEN survives. Then LAX is dropped because RWY_LEN is NA.
+        # JFK and BOS survive.
+        assert len(df) == 2
+        assert "JFK" in df.index
+        assert "BOS" in df.index
+        
 class TestAirportRunwayEndManager:
     
     @pytest.fixture
@@ -217,12 +219,11 @@ class TestAirportRunwayEndManager:
     @pytest.mark.asyncio
     async def test_prepare_data_drops_columns_and_rows(self):
         manager = AirportRunwayEndManager()
-        # Mock dataframe specifically mapped for runway ends
         mock_df = pd.DataFrame({
-            "ARPT_ID": ["JFK", "LAX", "ORD"],
-            "RWY_ID": ["04L/22R", "24L/24R", "10L/28R"],
-            "RWY_END_ID": ["04L", "24L", "10L"],
-            "RWY_END_ELEV": ["12.5", pd.NA, pd.NA],
+            "ARPT_ID": ["JFK", "BOS", "LAX"],
+            "RWY_ID": ["04L/22R", "09/27", "24L/24R"],
+            "RWY_END_ID": ["04L", "09", "24L"],
+            "RWY_END_ELEV": ["12.5", "15.0", pd.NA],
             "SPARSE_COL": [pd.NA, pd.NA, "TEST"]
         })
         manager.client.df = mock_df
@@ -233,8 +234,9 @@ class TestAirportRunwayEndManager:
         df = manager.client.df
 
         assert "SPARSE_COL" not in df.columns
-        assert len(df) == 1
-        assert "JFK" in df.index        
+        assert len(df) == 2
+        assert "JFK" in df.index
+        assert "BOS" in df.index
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
