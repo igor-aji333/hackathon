@@ -23,7 +23,6 @@ JSON object containing:
   - `surface`: Surface type code
   - `condition`: Condition code
   - `latitude_1`, `longitude_1`: First coordinate pair
-  - `latitude_2`, `longitude_2`: Second coordinate pair
   - `lights`: Lighting code
 
 ## Examples

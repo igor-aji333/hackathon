@@ -166,6 +166,10 @@ async def airport_get_runway_ends(
                 angle = re.get('visual_glide_path_angle')
                 if angle is not None:
                     md.append(f"- **Glide Path Angle**: {angle} degrees")
+
+                als = re.get('approach_light_system')
+                if als:
+                    md.append(f"- **Approach Lights**: {als}")                    
                     
                 md.append("\n---")
                 
