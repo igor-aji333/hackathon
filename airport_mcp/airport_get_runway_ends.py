@@ -140,7 +140,7 @@ async def airport_get_runway_ends(
             # Strip None values so they don't appear as 'null' in JSON
             response_data = {k: v for k, v in response_data.items() if v is not None}
             return json.dumps(response_data, indent=2)
-       else:
+        else:
             md = [f"# Runway Ends for {result['icao_id']}"]
             md.append("")
             for re in paginated_ends:
