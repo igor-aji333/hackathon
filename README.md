@@ -48,7 +48,7 @@ python -m airport_mcp.server
 
 ```
 
-Run with HTTP/SSE transport (requires `fastmcp[ssestream]`):
+Run with HTTP/SSE transport:
 
 ```bash
 MCP_TRANSPORT=streamable-http python -m airport_mcp.server
@@ -159,7 +159,7 @@ mcp-inspector python -m airport_mcp.server
 **Run Unit Tests:**
 
 ```bash
-pip install -e ".[dev]"
+uv pip install -e ".[dev]"
 pytest tests/
 
 ```

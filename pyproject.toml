@@ -10,25 +10,29 @@ requires-python = ">=3.13"
 license = {text = "Public Domain"}
 authors = [
     {name = "Igor Filippov"}
-]
+] # <-- FIXED
+
 dependencies = [
     "pandas>=2.0.0",
     "pyarrow>=14.0.0",
-    "requests>=2.31.0",
+    "httpx>=0.27.0",       # <-- FIXED: Replaced requests with httpx
+    "python-dotenv>=1.0.0",# <-- FIXED: Moved from dev to main
     "beautifulsoup4>=4.12.0",
     "fastmcp>=0.3.0",
     "pydantic>=2.5.0",
     "pydantic-settings>=2.1.0",
     "starlette>=0.35.0",
-    "boto3>=1.34.0",
     "uvicorn>=0.25.0"
-]
+] # <-- FIXED
 
 [project.optional-dependencies]
 dev = [
     "pytest",
     "black",
     "flake8"
+] # <-- FIXED
+s3 = [
+    "boto3>=1.34.0"        # <-- FIXED: Added missing [s3] target from DEPLOYMENT.md
 ]
 
 [dependency-groups]
@@ -43,6 +47,5 @@ dev = [
     "opentelemetry-exporter-otlp>=1.43.0",
     "opentelemetry-sdk>=1.43.0",
     "pandas>=2.0.0",
-    "pyyaml>=6.0.0",
-    "python-dotenv>=1.0.0",
-]
+    "pyyaml>=6.0.0"
+] # <-- FIXED

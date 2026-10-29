@@ -72,7 +72,6 @@ python-dotenv==1.2.4
 python-multipart==0.0.32
 pyyaml==6.0.3
 referencing==0.37.0
-requests==2.34.2
 rich==15.0.0
 rich-rst==2.2.0
 rpds-py==2026.9.1
