@@ -1,0 +1,42 @@
+<evaluation>
+   <qa_pair>
+      <question>Find the runway at KJFK with surface type CONC that has the longest length in feet. What is the length? Provide only the number.</question>
+      <answer>14511</answer>
+   </qa_pair>
+   <qa_pair>
+      <question>Compare all runway ends at Los Angeles International (KLAX). Which runway end ID has the highest recorded elevation? Provide just the runway end ID.</question>
+      <answer>24L</answer>
+   </qa_pair>
+   <qa_pair>
+      <question>Examine the runway ends at Seattle-Tacoma (KSEA). Count how many runway ends have an ILS type specified. Provide only the number.</question>
+      <answer>6</answer>
+   </qa_pair>
+   <qa_pair>
+      <question>Between KORD (Chicago O'Hare) and KATL (Atlanta), which airport has the highest number of runways longer than 10000 feet? Provide the 4-letter ICAO code.</question>
+      <answer>KATL</answer>
+   </qa_pair>
+   <qa_pair>
+      <question>Identify the runway at Denver International (KDEN) that has a length of 16000 feet. What is its surface condition code?</question>
+      <answer>STD</answer>
+   </qa_pair>
+   <qa_pair>
+      <question>At San Francisco International (KSFO), what is the elevation in feet of the runway end that corresponds to the runway with the widest physical width? Provide only the number.</question>
+      <answer>13.1</answer>
+   </qa_pair>
+   <qa_pair>
+      <question>Find the runway end at Miami International (KMIA) with the lowest recorded true alignment value. What is the runway end ID?</question>
+      <answer>08L</answer>
+   </qa_pair>
+   <qa_pair>
+      <question>Query Boston Logan (KBOS) for its runways. What is the total combined length in feet of all runways that have a width of 150 feet? Provide only the number.</question>
+      <answer>28543</answer>
+   </qa_pair>
+   <qa_pair>
+      <question>Compare the longest runway at Newark (KEWR) with the longest runway at LaGuardia (KLGA). What is the exact difference in length in feet? Provide only the number.</question>
+      <answer>4000</answer>
+   </qa_pair>
+   <qa_pair>
+      <question>Locate runway end 22R at Detroit Metro (KDTW). What is the specified approach light system code?</question>
+      <answer>ALSF2</answer>
+   </qa_pair>
+</evaluation>
