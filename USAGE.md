@@ -2,7 +2,7 @@
 
 ## Available Tool
 
-### `get_airport_runways(icao_or_faa_id)`
+### `airport_get_runways(icao_or_faa_id)`
 
 Query an airport by ICAO or FAA identifier to get runway information.
 
@@ -31,7 +31,7 @@ JSON object containing:
 ### Query JFK Airport Runways
 ```json
 {
-  "tool": "get_airport_runways",
+  "tool": "airport_get_runways",
   "parameters": {
     "icao_or_faa_id": "JFK"
   }
@@ -41,7 +41,7 @@ JSON object containing:
 ### Query Los Angeles International Airport
 ```json
 {
-  "tool": "get_airport_runways",
+  "tool": "airport_get_runways",
   "parameters": {
     "icao_or_faa_id": "KLAX"
   }
@@ -92,9 +92,9 @@ python -m airport_mcp.server
 
 # Or use with stdio transport
 python -c "
-from airport_mcp.server import get_airport_runways
+from airport_mcp.airport_get_runways import airport_get_runways
 import json
-print(get_airport_runways('JFK'))
+print(airport_get_runways('JFK'))
 "
 ```
 

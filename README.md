@@ -3,8 +3,8 @@
 A FastMCP server that provides comprehensive query access to FAA airport runway and runway end data. This server downloads, caches, and parses the 28-day FAA NASR (National Airspace System Resource) cycle data, exposing it to MCP clients for AI agents to query.
 
 ## Features
-- **Runway Information:** Retrieve length, width, surface, condition, and coordinates for runways (`get_airport_runways`).
-- **Runway Ends Information:** Retrieve elevations, thresholds, alignments, and glide slopes for runway ends (`get_airport_runway_ends`).
+- **Runway Information:** Retrieve length, width, surface, condition, and coordinates for runways (`airport_get_runways`).
+- **Runway Ends Information:** Retrieve elevations, thresholds, alignments, and glide slopes for runway ends (`airport_get_runway_ends`).
 - **Smart Caching:** Data is automatically downloaded, converted to Parquet for speed, and cached for 28 days based on FAA cycle schedules.
 - **Multiple Storage Backends:** Supports Local Disk, AWS S3, and Databricks Volumes.
 - **MCP Transports:** Supports Stdio, Server-Sent Events (SSE), and Streamable HTTP.
@@ -83,7 +83,7 @@ Data is automatically stored to `/Volumes/users/<user>/airport_mcp_data` when ru
 
 ## Available Tools
 
-### 1. `get_airport_runways(icao_or_faa_id)`
+### 1. `airport_get_runways(icao_or_faa_id)`
 
 Query an airport by ICAO or FAA identifier to get runway structural information.
 
@@ -94,7 +94,7 @@ Query an airport by ICAO or FAA identifier to get runway structural information.
 **Returns (JSON):**
 Provides array of runways with `rwy_id`, `length_ft`, `width_ft`, `surface`, `condition`, coordinates, and `lights`.
 
-### 2. `get_airport_runway_ends(icao_or_faa_id)`
+### 2. `airport_get_runway_ends(icao_or_faa_id)`
 
 Query an airport to get comprehensive runway end data (thresholds, elevations, alignments, glideslopes).
 
@@ -144,7 +144,7 @@ Add to `.opencode/mcp.json` using SSE:
 **CLI Testing:**
 
 ```bash
-python -c "from airport_mcp.runway_tool import get_airport_runways; print(get_airport_runways('JFK'))"
+python -c "from airport_mcp.airport_get_runways import airport_get_runways; print(airport_get_runways('JFK'))"
 
 ```
 

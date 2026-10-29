@@ -2,13 +2,15 @@ import json
 import logging
 from datetime import datetime
 from typing import Any, List, Optional, Annotated
+
 import pandas as pd
 from pydantic import BaseModel, Field
+
 from .faa_data_client import FAADataService, StorageConfig, StorageManager, CACHE_EXPIRATION_DAYS
 
 logger = logging.getLogger(__name__)
 
-# --- Data Models ---
+# [Data Models - Leave RunwayEnd and AirportRunwayEndInfo unchanged]
 class RunwayEnd(BaseModel):
     rwy_id: Optional[str] = Field(None, alias="RWY_ID")
     rwy_end_id: Optional[str] = Field(None, alias="RWY_END_ID")
@@ -27,7 +29,7 @@ class AirportRunwayEndInfo(BaseModel):
     country: Optional[str] = Field(None)
     runway_ends: List[RunwayEnd] = Field(default_factory=list)
 
-# --- Manager ---
+# [Manager - Leave AirportRunwayEndManager unchanged]
 class AirportRunwayEndManager:
     def __init__(self):
         storage = StorageManager(StorageConfig.from_env())
@@ -78,17 +80,18 @@ class AirportRunwayEndManager:
         )
         return info.model_dump(exclude_none=True)
 
-# Shared Instance
 airport_runway_end_manager = AirportRunwayEndManager()
 
-# --- Tool Function ---
-async def get_airport_runway_ends(
+async def airport_get_runway_ends(
     icao_or_faa_id: Annotated[str, Field(
         description="The 3-letter FAA identifier (e.g., 'JFK') or 4-letter ICAO identifier (e.g., 'KJFK') of the target US airport.",
         min_length=3,
         max_length=4,
         pattern=r"^[A-Za-z0-9]+$"
-    )]
+    )],
+    limit: Annotated[int, Field(description="Maximum number of runway ends to return", ge=1)] = 20,
+    offset: Annotated[int, Field(description="Pagination offset", ge=0)] = 0,
+    response_format: Annotated[str, Field(description="Format of the response: 'json' or 'markdown'")] = "markdown"
 ) -> str:
     """
     Retrieve comprehensive runway end information (thresholds, elevations, alignments, glideslopes, etc.) for a specific US airport.
@@ -96,12 +99,53 @@ async def get_airport_runway_ends(
     try:
         result = await airport_runway_end_manager.query(icao_or_faa_id)
         if result is None:
-            return json.dumps({
-                "error": f"Airport identifier '{icao_or_faa_id}' not found.",
-                "guidance": "Ensure you are querying a valid US airport using a 3-letter FAA code or 4-letter ICAO code. International airports outside the US are not supported."
-            }, indent=2)
-        return json.dumps(result, indent=2)
+            error_msg = f"Airport identifier '{icao_or_faa_id}' not found."
+            if response_format == "json":
+                return json.dumps({"isError": True, "error": error_msg})
+            return f"**Error**: {error_msg}\nEnsure you are querying a valid US airport."
+            
+        runway_ends = result.get("runway_ends", [])
+        total = len(runway_ends)
+        paginated_ends = runway_ends[offset : offset + limit]
+        count = len(paginated_ends)
+        has_more = (offset + limit) < total
+        next_offset = offset + limit if has_more else None
+
+        if response_format == "json":
+            response_data = {
+                "total_count": total,
+                "count": count,
+                "offset": offset,
+                "has_more": has_more,
+                "next_offset": next_offset,
+                "icao_id": result["icao_id"],
+                "city": result.get("city"),
+                "state": result.get("state"),
+                "country": result.get("country"),
+                "items": paginated_ends
+            }
+            return json.dumps(response_data, indent=2)
+        else:
+            md = [f"# Runway Ends for {result['icao_id']}"]
+            md.append("")
+            for re in paginated_ends:
+                elev = f"{re.get('elevation_ft')} ft" if re.get('elevation_ft') is not None else "Unknown"
+                angle = f"{re.get('visual_glide_path_angle')}°" if re.get('visual_glide_path_angle') is not None else "N/A"
+                md.append(f"### Runway End {re.get('rwy_end_id')} (Runway {re.get('rwy_id')})")
+                md.append(f"- **Elevation**: {elev}")
+                md.append(f"- **Alignment**: {re.get('true_alignment', 'Unknown')}")
+                md.append(f"- **ILS Type**: {re.get('ils_type', 'N/A')}")
+                md.append(f"- **Glide Path Angle**: {angle}")
+            
+            md.append("\n---")
+            md.append(f"*Showing {count} of {total} items. (Offset: {offset})*")
+            if has_more:
+                md.append(f"*Use `offset={next_offset}` to see more.*")
+            
+            return "\n".join(md)
+
     except Exception as e:
         logger.error(f"Runway Ends query execution failed for {icao_or_faa_id}: {e}")
-        return json.dumps({"error": "Internal server error occurred while retrieving runway end data."}, indent=2)
-    
+        if response_format == "json":
+            return json.dumps({"isError": True, "error": "Internal server error occurred."})
+        return "**Error**: Internal server error occurred."

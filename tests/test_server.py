@@ -15,8 +15,8 @@ from airport_mcp.faa_data_client import (
     FAADataService, StorageBackend, StorageConfig, StorageManager,
     TIMESTAMP_FILENAME
 )
-from airport_mcp.runway_tool import AirportRunwayManager
-from airport_mcp.runway_end_tool import AirportRunwayEndManager
+from airport_mcp.airport_get_runways import AirportRunwayManager
+from airport_mcp.airport_get_runway_ends import AirportRunwayEndManager
 
 # --- MOCK DATA ---
 MOCK_HTML_CONTENT = """

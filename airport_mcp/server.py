@@ -11,8 +11,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse
 
-from .runway_tool import airport_manager, get_airport_runways
-from .runway_end_tool import airport_runway_end_manager, get_airport_runway_ends
+from .airport_get_runways import airport_manager, airport_get_runways
+from .airport_get_runway_ends import airport_runway_end_manager, airport_get_runway_ends
 
 logging.basicConfig(
     level=logging.INFO,
@@ -22,8 +22,8 @@ logger = logging.getLogger(__name__)
 
 SERVER_INSTRUCTIONS = """
 TOOL SELECTION GUIDE:
-- get_airport_runways: Use for physical structural runway data (length, width, surface, lighting).
-- get_airport_runway_ends: Use for thresholds, elevations, glide slopes, and alignments.
+- airport_get_runways: Use for physical structural runway data (length, width, surface, lighting).
+- airport_get_runway_ends: Use for thresholds, elevations, glide slopes, and alignments.
 
 DOMAIN CONVENTIONS:
 - Inputs accept either 3-letter FAA codes (e.g., JFK) or 4-letter ICAO codes (e.g., KJFK).
@@ -34,14 +34,15 @@ mcp = FastMCP("Airport MCP Server", instructions=SERVER_INSTRUCTIONS)
 
 # Register tools with explicit names and capability annotations
 mcp.tool(
-    name="get_airport_runways",
+    name="airport_get_runways",
     annotations={"readOnlyHint": True, "idempotentHint": True}
-)(get_airport_runways)
+)(airport_get_runways)
 
 mcp.tool(
-    name="get_airport_runway_ends",
+    name="airport_get_runway_ends",
     annotations={"readOnlyHint": True, "idempotentHint": True}
-)(get_airport_runway_ends)
+)(airport_get_runway_ends)
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -89,4 +90,3 @@ if __name__ == "__main__":
         mcp.run(transport="sse", host=settings.mcp_host, port=settings.mcp_port)
     else:
         mcp.run(transport="stdio")
-        

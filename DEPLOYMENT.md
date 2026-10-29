@@ -108,7 +108,7 @@ curl -X POST "https://airport-7474654188777746.aws.databricksapps.com/mcp" \
        "id": 2,
        "method": "tools/call",
        "params": {
-         "name": "get_airport_runways",
+         "name": "airport_get_runways",
          "arguments": {
            "icao_or_faa_id": "JFK"
          }
