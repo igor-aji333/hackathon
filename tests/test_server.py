@@ -147,6 +147,30 @@ class TestAirportRunwayManager:
         assert result is not None
         assert result["icao_id"] == "JFK"
 
+    @pytest.mark.asyncio
+    async def test_prepare_data_drops_columns_and_rows(self):
+        manager = AirportRunwayManager()
+        # Mock dataframe where MOSTLY_NA_COL has >50% NA values.
+        # LAX and ORD have no valid data other than identifiers.
+        mock_df = pd.DataFrame({
+            "ARPT_ID": ["JFK", "LAX", "ORD"],
+            "RWY_ID": ["04L", "24R", "10L"],
+            "RWY_LEN": ["14000", pd.NA, pd.NA],
+            "MOSTLY_NA_COL": [pd.NA, pd.NA, "TEST"]
+        })
+        manager.client.df = mock_df
+        manager.client.last_download = None
+        manager.client.initialize = AsyncMock()
+
+        await manager._prepare_data()
+        df = manager.client.df
+
+        # MOSTLY_NA_COL should be dropped (2/3 NA)
+        assert "MOSTLY_NA_COL" not in df.columns
+        # After column drop, LAX and ORD only have ARPT_ID/RWY_ID remaining, so they should be dropped
+        assert len(df) == 1
+        assert "JFK" in df.index        
+
 
 class TestAirportRunwayEndManager:
     
@@ -189,6 +213,28 @@ class TestAirportRunwayEndManager:
         assert "icao_id" in parsed
         assert "runway_ends" in parsed
         assert isinstance(parsed["runway_ends"], list)
+
+    @pytest.mark.asyncio
+    async def test_prepare_data_drops_columns_and_rows(self):
+        manager = AirportRunwayEndManager()
+        # Mock dataframe specifically mapped for runway ends
+        mock_df = pd.DataFrame({
+            "ARPT_ID": ["JFK", "LAX", "ORD"],
+            "RWY_ID": ["04L/22R", "24L/24R", "10L/28R"],
+            "RWY_END_ID": ["04L", "24L", "10L"],
+            "RWY_END_ELEV": ["12.5", pd.NA, pd.NA],
+            "SPARSE_COL": [pd.NA, pd.NA, "TEST"]
+        })
+        manager.client.df = mock_df
+        manager.client.last_download = None
+        manager.client.initialize = AsyncMock()
+
+        await manager._prepare_data()
+        df = manager.client.df
+
+        assert "SPARSE_COL" not in df.columns
+        assert len(df) == 1
+        assert "JFK" in df.index        
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

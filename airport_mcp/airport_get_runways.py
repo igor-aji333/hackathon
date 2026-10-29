@@ -38,11 +38,18 @@ class AirportRunwayManager:
             await self.client.initialize()
             df = self.client.df
             
+            # 1. Drop columns with > 50% N/A
             min_non_na = len(df) / 2
             df = df.dropna(axis=1, thresh=min_non_na)
+
+            # 2. Drop rows where all columns except 'ARPT_ID' and 'RWY_ID' are N/A
+            cols_to_check = [c for c in df.columns if c not in ["ARPT_ID", "RWY_ID"]]
+            if cols_to_check:
+                df = df.dropna(axis=0, how='all', subset=cols_to_check)
+            
             if "ARPT_ID" in df.columns:
                 df["ARPT_ID"] = df["ARPT_ID"].str.upper()
-                self.client.df = df.set_index("ARPT_ID")
+                self.client.df = df.set_index("ARPT_ID")        
 
     async def query(self, ident: str) -> dict[str, Any] | None:
         await self._prepare_data()
