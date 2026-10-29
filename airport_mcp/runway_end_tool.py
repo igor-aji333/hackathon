@@ -1,12 +1,10 @@
 import json
 import logging
 from datetime import datetime
-from typing import Any, List, Optional
-
+from typing import Any, List, Optional, Annotated
 import pandas as pd
 from pydantic import BaseModel, Field
-
-from .faa_data_client import FAADataService, StorageConfig, StorageManager
+from .faa_data_client import FAADataService, StorageConfig, StorageManager, CACHE_EXPIRATION_DAYS
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +33,9 @@ class AirportRunwayEndManager:
         storage = StorageManager(StorageConfig.from_env())
         self.client = FAADataService(storage, "APT_RWY_END")
 
-    def _prepare_data(self):
-        if self.client.df is None or self.client.last_download is None or (datetime.now() - self.client.last_download).days > 28:
-            self.client.initialize()
+    async def _prepare_data(self):
+        if self.client.df is None or self.client.last_download is None or (datetime.now() - self.client.last_download).days > CACHE_EXPIRATION_DAYS:
+            await self.client.initialize()
             df = self.client.df
             
             min_non_na = len(df) / 2
@@ -46,8 +44,8 @@ class AirportRunwayEndManager:
                 df["ARPT_ID"] = df["ARPT_ID"].str.upper()
                 self.client.df = df.set_index("ARPT_ID")
 
-    def query(self, ident: str) -> dict[str, Any] | None:
-        self._prepare_data()
+    async def query(self, ident: str) -> dict[str, Any] | None:
+        await self._prepare_data()
         df = self.client.df
         
         ident_upper = ident.upper()
@@ -63,7 +61,7 @@ class AirportRunwayEndManager:
         existing_num_cols = [col for col in numeric_cols if col in airport_data.columns]
         if existing_num_cols:
             airport_data[existing_num_cols] = airport_data[existing_num_cols].apply(pd.to_numeric, errors="coerce")
-        
+            
         records = airport_data.to_dict(orient="records")
         runway_ends = [
             RunwayEnd(**{k: (None if pd.isna(v) else v) for k, v in record.items()})
@@ -84,18 +82,24 @@ class AirportRunwayEndManager:
 airport_runway_end_manager = AirportRunwayEndManager()
 
 # --- Tool Function ---
-def get_airport_runway_ends(icao_or_faa_id: str) -> str:
+async def get_airport_runway_ends(
+    icao_or_faa_id: Annotated[str, Field(
+        description="The 3-letter FAA identifier (e.g., 'JFK') or 4-letter ICAO identifier (e.g., 'KJFK') of the target US airport.",
+        min_length=3,
+        max_length=4,
+        pattern=r"^[A-Za-z0-9]+$"
+    )]
+) -> str:
     """
     Retrieve comprehensive runway end information (thresholds, elevations, alignments, glideslopes, etc.) for a specific US airport.
-    
-    Args:
-        icao_or_faa_id: The 3-letter FAA identifier (e.g., 'JFK', 'ORD') or 4-letter
-                        ICAO identifier (e.g., 'KJFK', 'KORD') of the target airport.
     """
     try:
-        result = airport_runway_end_manager.query(icao_or_faa_id)
+        result = await airport_runway_end_manager.query(icao_or_faa_id)
         if result is None:
-            return json.dumps({"error": f"Airport identifier '{icao_or_faa_id}' not found."}, indent=2)
+            return json.dumps({
+                "error": f"Airport identifier '{icao_or_faa_id}' not found.",
+                "guidance": "Ensure you are querying a valid US airport using a 3-letter FAA code or 4-letter ICAO code. International airports outside the US are not supported."
+            }, indent=2)
         return json.dumps(result, indent=2)
     except Exception as e:
         logger.error(f"Runway Ends query execution failed for {icao_or_faa_id}: {e}")

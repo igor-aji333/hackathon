@@ -6,10 +6,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Optional, Tuple
-
+from typing import Optional
+import httpx
 import pandas as pd
-import requests
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
@@ -17,7 +16,6 @@ logger = logging.getLogger(__name__)
 # --- URL Configurations ---
 FAA_NASR_SUBSCRIPTION_URL = "https://www.faa.gov/air_traffic/flight_info/aeronav/Aero_Data/NASR_Subscription/"
 FAA_NASR_ARCHIVE_BASE_URL = "https://nfdc.faa.gov/webContent/28DaySub/extra/"
-URL_ARCHIVE_SUFFIX = "_APT_CSV.zip"
 
 # --- Filename Configurations ---
 TIMESTAMP_FILENAME = "nasr_cycle_timestamp.txt"
@@ -28,7 +26,6 @@ CSV_SUFFIX = ".csv"
 
 # --- Storage & Cache Configurations ---
 DEFAULT_S3_PREFIX = "airport_mcp/"
-# In DataBricks notebook: CREATE VOLUME users.igor_v_filippov.airport_mcp_data;
 DEFAULT_DATABRICKS_PATH = "/Volumes/users/igor_v_filippov/airport_mcp_data"
 DEFAULT_LOCAL_DIR_NAME = ".airport_mcp_data"
 CACHE_EXPIRATION_DAYS = 28
@@ -47,7 +44,7 @@ class StorageConfig:
     
     @classmethod
     def from_env(cls) -> "StorageConfig":
-        backend_str = os.environ.get("DATABRICKS_RUNTIME_VERSION") 
+        backend_str = os.environ.get("DATABRICKS_RUNTIME_VERSION")
         backend = StorageBackend.DATABRICKS if backend_str else StorageBackend(
             os.environ.get("AIRPORT_MCP_STORAGE_BACKEND", "local").lower()
         )
@@ -60,7 +57,7 @@ class StorageConfig:
             )
         elif backend == StorageBackend.DATABRICKS:
             return cls(backend=backend, local_path=Path(DEFAULT_DATABRICKS_PATH))
-        
+            
         return cls(backend=backend, local_path=Path.home() / DEFAULT_LOCAL_DIR_NAME)
 
 class StorageManager:
@@ -140,21 +137,28 @@ class StorageManager:
             data_path = self.base_dir / f"{dataset_name}{PARQUET_SUFFIX}"
             return data_path.read_bytes() if data_path.exists() else None
 
-
 class FAADataService:
-    """Reusable service for downloading and caching FAA NASR CSV data."""
     def __init__(self, storage_manager: StorageManager, target_csv_name: str):
         self.storage = storage_manager
         self.target_csv_name = target_csv_name
         self.df: Optional[pd.DataFrame] = None
         self.last_download: Optional[datetime] = None
 
-    def _get_subscription_date(self) -> datetime:
+    def _validate_url(self, url: str, expected_prefix: str) -> None:
+        """Prevent SSRF and hostname confusion by strictly validating origins."""
+        if not url.startswith(expected_prefix):
+            raise ValueError(f"Security Policy Violation: URL {url} does not match allowed origin {expected_prefix}")
+
+    async def _get_subscription_date(self) -> datetime:
+        self._validate_url(FAA_NASR_SUBSCRIPTION_URL, "https://www.faa.gov/")
+        
         try:
-            response = requests.get(FAA_NASR_SUBSCRIPTION_URL, timeout=15)
-            response.raise_for_status()
+            # Using httpx with follow_redirects=False for strict security
+            async with httpx.AsyncClient(follow_redirects=False) as client:
+                response = await client.get(FAA_NASR_SUBSCRIPTION_URL, timeout=15.0)
+                response.raise_for_status()
+                
             soup = BeautifulSoup(response.text, "html.parser")
-            
             dates = []
             for element in soup.find_all(string=True):
                 if "Subscription effective" in element:
@@ -163,51 +167,51 @@ class FAADataService:
                         dates.append(datetime.strptime(date_str, "%B %d, %Y"))
                     except ValueError:
                         continue
-                        
+            
             if not dates:
                 return datetime.now()
                 
-            now = datetime.now()
-            past_dates = [d for d in dates if d <= now]
+            past_dates = [d for d in dates if d <= datetime.now()]
             return max(past_dates) if past_dates else min(dates)
             
-        except requests.RequestException as e:
+        except httpx.RequestError as e:
             logger.error(f"Failed to fetch FAA subscription page: {e}")
             raise
 
-    def _get_or_download_archive(self, sub_date: datetime) -> bytes:
+    async def _get_or_download_archive(self, sub_date: datetime) -> bytes:
         formatted_date = sub_date.strftime("%d_%b_%Y")
-        archive_name = f"{ARCHIVE_PREFIX}{formatted_date}{ARCHIVE_SUFFIX}"
+        archive_name = f"FAA_NASR_{formatted_date}.zip"
         
         archive_bytes = self.storage.load_archive(archive_name)
         if archive_bytes:
-            logger.info(f"Loaded cached ZIP archive: {archive_name}")
             return archive_bytes
             
-        zip_url = f"{FAA_NASR_ARCHIVE_BASE_URL}{formatted_date}{URL_ARCHIVE_SUFFIX}"
+        zip_url = f"{FAA_NASR_ARCHIVE_BASE_URL}{formatted_date}_APT_CSV.zip"
+        self._validate_url(zip_url, FAA_NASR_ARCHIVE_BASE_URL)
+        
         logger.info(f"Downloading new FAA archive from {zip_url}")
         
-        response = requests.get(zip_url, timeout=120)
-        response.raise_for_status()
-        
+        async with httpx.AsyncClient(follow_redirects=False) as client:
+            response = await client.get(zip_url, timeout=120.0)
+            response.raise_for_status()
+            
         self.storage.save_archive(archive_name, response.content)
         return response.content
 
-    def _extract_target_csv(self, sub_date: datetime) -> pd.DataFrame:
-        archive_bytes = self._get_or_download_archive(sub_date)
+    async def _extract_target_csv(self, sub_date: datetime) -> pd.DataFrame:
+        archive_bytes = await self._get_or_download_archive(sub_date)
         
         with zipfile.ZipFile(io.BytesIO(archive_bytes)) as zf:
-            csv_files = [f for f in zf.namelist() if f.endswith(CSV_SUFFIX)]
+            csv_files = [f for f in zf.namelist() if f.endswith(".csv")]
             target_file = next((f for f in csv_files if self.target_csv_name in f), None)
             
             if not target_file:
-                raise ValueError(f"Target CSV '{self.target_csv_name}' not found in FAA zip archive.")
-            
-            logger.info(f"Extracting {target_file} from archive...")
+                raise ValueError(f"Target CSV '{self.target_csv_name}' not found.")
+                
             csv_content = zf.read(target_file)
             return pd.read_csv(io.BytesIO(csv_content), dtype=str)
 
-    def initialize(self, force_refresh: bool = False) -> None:
+    async def initialize(self, force_refresh: bool = False) -> None:
         cached_ts = self.storage.load_cycle_timestamp()
         parquet_data = self.storage.load_parquet(self.target_csv_name)
         
@@ -216,17 +220,14 @@ class FAADataService:
         
         if needs_download:
             try:
-                sub_date = self._get_subscription_date()
-                
+                sub_date = await self._get_subscription_date()
                 if not force_refresh and cached_ts and cached_ts >= sub_date and parquet_data:
-                    logger.info(f"Local cache is older than {CACHE_EXPIRATION_DAYS} days, but no newer FAA cycle is available yet.")
                     self.df = pd.read_parquet(io.BytesIO(parquet_data))
                     self.last_download = cached_ts
                 else:
-                    raw_df = self._extract_target_csv(sub_date)
+                    raw_df = await self._extract_target_csv(sub_date)
                     self.storage.save_parquet(self.target_csv_name, raw_df.to_parquet())
                     self.storage.save_cycle_timestamp(sub_date)
-                    
                     self.df = raw_df
                     self.last_download = sub_date
             except Exception as e:
@@ -239,5 +240,3 @@ class FAADataService:
         else:
             self.df = pd.read_parquet(io.BytesIO(parquet_data))
             self.last_download = cached_ts
-            
-        logger.info(f"{self.target_csv_name} Data Service initialized. Cycle date: {self.last_download}")

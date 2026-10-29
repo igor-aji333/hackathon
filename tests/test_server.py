@@ -5,8 +5,7 @@ import sys
 import zipfile
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-
+from unittest.mock import MagicMock, patch, AsyncMock
 import pandas as pd
 import pytest
 
@@ -18,7 +17,6 @@ from airport_mcp.faa_data_client import (
 )
 from airport_mcp.runway_tool import AirportRunwayManager
 from airport_mcp.runway_end_tool import AirportRunwayEndManager
-
 
 # --- MOCK DATA ---
 MOCK_HTML_CONTENT = """
@@ -38,36 +36,40 @@ def create_mock_zip_bytes(target_csv: str, content: bytes) -> bytes:
 
 # --- FAA Data Client Tests ---
 class TestFAADataClient:
-    def test_get_subscription_date_valid(self):
+    
+    @pytest.mark.asyncio
+    async def test_get_subscription_date_valid(self):
         config = StorageConfig(backend=StorageBackend.LOCAL, local_path=Path("/tmp/mock"))
         service = FAADataService(StorageManager(config), "APT_RWY")
         
-        with patch('airport_mcp.faa_data_client.requests.get') as mock_get:
+        with patch('httpx.AsyncClient.get', new_callable=AsyncMock) as mock_get:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.text = MOCK_HTML_CONTENT
             mock_get.return_value = mock_response
             
-            date = service._get_subscription_date()
+            date = await service._get_subscription_date()
             assert date.year == 2026
             assert date.month == 10
             assert date.day == 1
 
-    def test_extract_target_csv(self):
+    @pytest.mark.asyncio
+    async def test_extract_target_csv(self):
         config = StorageConfig(backend=StorageBackend.LOCAL, local_path=Path("/tmp/mock"))
         service = FAADataService(StorageManager(config), "APT_RWY")
         
         test_csv = b"ARPT_ID,RWY_ID,RWY_LEN\nJFK,04L,14000\nJFK,04R,14000\n"
         zip_bytes = create_mock_zip_bytes("2026-10-01_APT_RWY.csv", test_csv)
         
-        with patch.object(service, '_get_or_download_archive', return_value=zip_bytes):
-            df = service._extract_target_csv(datetime(2026, 10, 1))
+        with patch.object(service, '_get_or_download_archive', new_callable=AsyncMock, return_value=zip_bytes):
+            df = await service._extract_target_csv(datetime(2026, 10, 1))
             assert len(df) == 2
             assert df.iloc[0]["ARPT_ID"] == "JFK"
 
 
 # --- Storage Manager Tests ---
 class TestStorageManager:
+    
     def test_storage_config_from_env_local(self):
         with patch.dict(os.environ, {}, clear=True):
             config = StorageConfig.from_env()
@@ -105,6 +107,7 @@ class TestStorageManager:
 
 # --- Server Logic Tests ---
 class TestAirportRunwayManager:
+    
     @pytest.fixture
     def mock_manager(self):
         manager = AirportRunwayManager()
@@ -115,11 +118,14 @@ class TestAirportRunwayManager:
         
         manager.client.df = mock_df
         manager.client.last_download = datetime(2026, 10, 1)
-        manager._prepare_data = MagicMock()
+        
+        # Patch the async preparation layer natively
+        manager._prepare_data = AsyncMock()
         return manager
         
-    def test_query_airport_found(self, mock_manager):
-        result = mock_manager.query("JFK")
+    @pytest.mark.asyncio
+    async def test_query_airport_found(self, mock_manager):
+        result = await mock_manager.query("JFK")
         
         assert result is not None
         assert result["icao_id"] == "JFK"
@@ -130,17 +136,20 @@ class TestAirportRunwayManager:
         assert result["runways"][0]["rwy_id"] == "04L/22R"
         assert result["runways"][0]["length_ft"] == 14000.0
 
-    def test_query_airport_not_found(self, mock_manager):
-        result = mock_manager.query("LAX")
+    @pytest.mark.asyncio
+    async def test_query_airport_not_found(self, mock_manager):
+        result = await mock_manager.query("LAX")
         assert result is None
 
-    def test_query_airport_icao_to_faa_conversion(self, mock_manager):
-        result = mock_manager.query("KJFK")
+    @pytest.mark.asyncio
+    async def test_query_airport_icao_to_faa_conversion(self, mock_manager):
+        result = await mock_manager.query("KJFK")
         assert result is not None
         assert result["icao_id"] == "JFK"
 
 
 class TestAirportRunwayEndManager:
+    
     @pytest.fixture
     def mock_end_manager(self):
         manager = AirportRunwayEndManager()
@@ -151,11 +160,12 @@ class TestAirportRunwayEndManager:
         
         manager.client.df = mock_df
         manager.client.last_download = datetime(2026, 10, 1)
-        manager._prepare_data = MagicMock()
+        manager._prepare_data = AsyncMock()
         return manager
 
-    def test_query_runway_end_found(self, mock_end_manager):
-        result = mock_end_manager.query("JFK")
+    @pytest.mark.asyncio
+    async def test_query_runway_end_found(self, mock_end_manager):
+        result = await mock_end_manager.query("JFK")
         
         assert result is not None
         assert result["icao_id"] == "JFK"
@@ -165,12 +175,14 @@ class TestAirportRunwayEndManager:
         assert result["runway_ends"][0]["elevation_ft"] == 12.5
         assert result["runway_ends"][0]["visual_glide_path_angle"] == 3.0
 
-    def test_query_runway_end_not_found(self, mock_end_manager):
-        result = mock_end_manager.query("LAX")
+    @pytest.mark.asyncio
+    async def test_query_runway_end_not_found(self, mock_end_manager):
+        result = await mock_end_manager.query("LAX")
         assert result is None
 
-    def test_query_runway_end_json_format(self, mock_end_manager):
-        result = mock_end_manager.query("JFK")
+    @pytest.mark.asyncio
+    async def test_query_runway_end_json_format(self, mock_end_manager):
+        result = await mock_end_manager.query("JFK")
         json_output = json.dumps(result)
         
         parsed = json.loads(json_output)
