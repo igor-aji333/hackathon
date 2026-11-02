@@ -6,7 +6,9 @@ from typing import Any, Dict
 
 from dotenv import load_dotenv
 from langchain.agents import create_agent
-from langchain_mcp_adapters.client import MultiServerMCPClient
+from contextlib import AsyncExitStack
+from mcp import StdioServerParameters
+from langchain.mcp import MCPAdapter
 from langchain_openai import ChatOpenAI
 from openinference.instrumentation.langchain import LangChainInstrumentor
 import phoenix.otel
@@ -48,18 +50,17 @@ class AirportAgent:
         )
         LangChainInstrumentor().instrument(tracer_provider=tracer_provider)
 
-        # Launch the MCP server over stdio
-        self.client = MultiServerMCPClient({
-            "airport_server": {
-                "transport": "stdio",
-                "command": sys.executable,
-                "args": ["-m", "airport_mcp.server"],
-                "cwd": REPO_ROOT,
-            }
-        })
-
-        tools = await self.client.get_tools()
-
+        # Launch the MCP server over stdio using the modern built-in adapter
+        self.stack = AsyncExitStack()
+        server_params = StdioServerParameters(
+            command=sys.executable,
+            args=["-m", "airport_mcp.server"],
+            cwd=REPO_ROOT
+        )
+        
+        self.adapter = await self.stack.enter_async_context(MCPAdapter(server_params))
+        tools = await self.adapter.list_tools()
+        
         # Remove these lines:
         # base_url = os.getenv("USAI_BASE_URL", "").rstrip("/")
         # if base_url and not base_url.endswith("/api/v1"):
