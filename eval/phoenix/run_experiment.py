@@ -23,7 +23,7 @@ def main():
     if args.dataset_name not in registry:
         raise KeyError(f"Dataset '{args.dataset_name}' not found in datasets.yaml")
 
-    client = Client()
+    client = Client(endpoint="http://localhost:6006")
     dataset = client.datasets.get_dataset(dataset=args.dataset_name)
 
     agent = AirportAgent(
