@@ -13,6 +13,8 @@ from langchain_openai import ChatOpenAI
 from openinference.instrumentation.langchain import LangChainInstrumentor
 import phoenix.otel
 
+_OTEL_INITIALIZED = False
+
 # Load environment walking up to root
 load_dotenv()
 
@@ -43,23 +45,28 @@ class AirportAgent:
         return prompt_path.read_text(encoding="utf-8")
 
     async def initialize(self) -> None:
-        # Instrument Phoenix OpenTelemetry
-        tracer_provider = phoenix.otel.register(
-            project_name=self.project_name,
-            endpoint=self.endpoint,
-        )
-        LangChainInstrumentor().instrument(tracer_provider=tracer_provider)
-
-        # Launch the MCP server over stdio using the modern built-in adapter
+        global _OTEL_INITIALIZED
+        if not _OTEL_INITIALIZED:
+            # Instrument Phoenix OpenTelemetry once for the whole experiment
+            tracer_provider = phoenix.otel.register(
+                project_name=self.project_name,
+                endpoint=self.endpoint,
+            )
+            LangChainInstrumentor().instrument(tracer_provider=tracer_provider)
+            _OTEL_INITIALIZED = True
+                     
+        # Launch the MCP server over stdio using a command list
         self.stack = AsyncExitStack()
-        server_params = StdioServerParameters(
-            command=sys.executable,
-            args=["-m", "airport_mcp.server"],
-            cwd=REPO_ROOT
-        )
         
-        self.adapter = await self.stack.enter_async_context(MCPAdapter(server_params))
-        tools = await self.adapter.list_tools()
+        # Ensure the subprocess can find the airport_mcp module
+        os.environ["PYTHONPATH"] = f"{REPO_ROOT}:{os.environ.get('PYTHONPATH', '')}"
+        
+        # fastmcp infers stdio transport automatically from a list of command arguments
+        command = [sys.executable, "-m", "airport_mcp.server"]
+        self.adapter = await self.stack.enter_async_context(MCPAdapter(command))
+        
+        tools = self.adapter.tools
+        
         
         # Remove these lines:
         # base_url = os.getenv("USAI_BASE_URL", "").rstrip("/")
