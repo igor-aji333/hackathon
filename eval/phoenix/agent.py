@@ -1,4 +1,10 @@
 import asyncio
+import threading
+
+# Create a permanent background event loop for thread-safe async execution
+_SHARED_LOOP = asyncio.new_event_loop()
+threading.Thread(target=_SHARED_LOOP.run_forever, daemon=True).start()
+
 import os
 import sys
 from pathlib import Path
@@ -101,10 +107,10 @@ class AirportAgent:
             # Gracefully shut down the in-memory MCP server before the event loop closes
             if hasattr(self, "stack") and self.stack:
                 await self.stack.aclose()
-
+      
     def create_experiment_task(self):
-        """Returns an execution closure required by Phoenix experiments."""
-        async def task(example: Any) -> Dict[str, Any]:
+        """Returns a synchronous execution closure required by Phoenix experiments."""
+        def task(example: Any) -> Dict[str, Any]:
             query = example.input.get("query")
             
             # Create a fresh agent instance for this evaluation
@@ -114,12 +120,13 @@ class AirportAgent:
                 endpoint=self.endpoint,
             )
             
-            # Await directly to share Phoenix's master event loop
-            output_text = await local_agent.run(query)
+            # Execute securely on the shared background loop
+            future = asyncio.run_coroutine_threadsafe(local_agent.run(query), _SHARED_LOOP)
+            output_text = future.result()
+            
             return {"responses": output_text}
             
-        return task           
-  
+        return task
     
 if __name__ == "__main__":
     async def _test():
