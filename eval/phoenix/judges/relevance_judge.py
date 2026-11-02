@@ -28,18 +28,22 @@ EVALUATION CRITERIA:
 """
 
 def check_answer_scope(input: dict, output: dict) -> str:
+    # Remove these lines:
+    # base_url = os.getenv("USAI_BASE_URL", "").rstrip("/")
+    # if base_url and not base_url.endswith("/api/v1"):
+    #     base_url = f"{base_url}/api/v1"
+        
+    # Replace with:
     base_url = os.getenv("USAI_BASE_URL", "").rstrip("/")
-    if base_url and not base_url.endswith("/api/v1"):
-        base_url = f"{base_url}/api/v1"
 
     judge_llm = LLM(
         provider="openai",
-        model=os.getenv("JUDGE_MODEL", "claude_4_6_sonnet"),
-        api_key=os.getenv("USAI_API_KEY"),
+        model=os.getenv("JUDGE_MODEL", "llama3.1"),
+        api_key=os.getenv("USAI_API_KEY", "ollama"),
         base_url=base_url if base_url else None,
         temperature=0.0,
     )
-
+    
     evaluator = ClassificationEvaluator(
         llm=judge_llm,
         prompt_template=RELEVANCE_PROMPT_TEMPLATE,

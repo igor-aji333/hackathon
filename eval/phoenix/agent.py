@@ -60,17 +60,21 @@ class AirportAgent:
 
         tools = await self.client.get_tools()
 
+        # Remove these lines:
+        # base_url = os.getenv("USAI_BASE_URL", "").rstrip("/")
+        # if base_url and not base_url.endswith("/api/v1"):
+        #     base_url = f"{base_url}/api/v1"
+        
+        # Replace with:
         base_url = os.getenv("USAI_BASE_URL", "").rstrip("/")
-        if base_url and not base_url.endswith("/api/v1"):
-            base_url = f"{base_url}/api/v1"
 
         llm = ChatOpenAI(
-            model=os.getenv("AGENT_MODEL", "gpt-4o"),
-            api_key=os.getenv("USAI_API_KEY"),
+            model=os.getenv("AGENT_MODEL", "llama3.1"),
+            api_key=os.getenv("USAI_API_KEY", "ollama"),
             base_url=base_url if base_url else None,
             temperature=0.0,
         )
-
+        
         self.agent_executor = create_agent(
             model=llm,
             tools=tools,
