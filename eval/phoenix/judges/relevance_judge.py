@@ -42,8 +42,9 @@ def check_answer_scope(input: dict, output: dict) -> str:
         api_key=os.getenv("USAI_API_KEY", "ollama"),
         base_url=base_url if base_url else None,
     )
-    
+       
     evaluator = ClassificationEvaluator(
+        name="check_answer_scope",
         llm=judge_llm,
         prompt_template=RELEVANCE_PROMPT_TEMPLATE,
         choices={"within_scope": 1, "out_of_scope": 0},

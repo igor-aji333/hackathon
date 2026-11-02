@@ -62,7 +62,7 @@ class AirportAgent:
         # Launch the MCP server in-memory to bypass stdio transport inference bugs
         self.stack = AsyncExitStack()
         self.adapter = await self.stack.enter_async_context(MCPAdapter(airport_server_app))
-        tools = self.adapter.tools
+        tools = await self.adapter.list_tools()
         
         # Remove these lines:
         # base_url = os.getenv("USAI_BASE_URL", "").rstrip("/")
