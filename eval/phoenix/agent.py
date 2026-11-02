@@ -99,14 +99,19 @@ class AirportAgent:
     def create_experiment_task(self):
         """Returns a synchronous execution closure required by Phoenix experiments."""
         def task(example: Any) -> Dict[str, Any]:
-            # Handles Phoenix Example schema where input dict keys map to query
             query = example.input.get("query")
-            output_text = asyncio.run(self.run(query))
+            
+            # Create a fresh agent instance for this thread's event loop
+            local_agent = AirportAgent(
+                system_prompt_version=self.version,
+                project_name=self.project_name,
+                endpoint=self.endpoint,
+            )
+            
+            output_text = asyncio.run(local_agent.run(query))
             return {"responses": output_text}
-
         return task
-
-
+    
 if __name__ == "__main__":
     async def _test():
         agent = AirportAgent(system_prompt_version="v1")
