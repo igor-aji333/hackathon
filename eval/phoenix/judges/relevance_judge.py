@@ -41,7 +41,6 @@ def check_answer_scope(input: dict, output: dict) -> str:
         model=os.getenv("JUDGE_MODEL", "llama3.1"),
         api_key=os.getenv("USAI_API_KEY", "ollama"),
         base_url=base_url if base_url else None,
-        temperature=0.0,
     )
     
     evaluator = ClassificationEvaluator(

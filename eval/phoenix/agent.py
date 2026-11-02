@@ -13,6 +13,10 @@ from langchain_openai import ChatOpenAI
 from openinference.instrumentation.langchain import LangChainInstrumentor
 import phoenix.otel
 
+from mcp import StdioServerParameters
+from langchain.mcp import MCPAdapter
+from airport_mcp.server import mcp as airport_server_app
+
 _OTEL_INITIALIZED = False
 
 # Load environment walking up to root
@@ -54,19 +58,11 @@ class AirportAgent:
             )
             LangChainInstrumentor().instrument(tracer_provider=tracer_provider)
             _OTEL_INITIALIZED = True
-                     
-        # Launch the MCP server over stdio using a command list
+
+        # Launch the MCP server in-memory to bypass stdio transport inference bugs
         self.stack = AsyncExitStack()
-        
-        # Ensure the subprocess can find the airport_mcp module
-        os.environ["PYTHONPATH"] = f"{REPO_ROOT}:{os.environ.get('PYTHONPATH', '')}"
-        
-        # fastmcp infers stdio transport automatically from a list of command arguments
-        command = [sys.executable, "-m", "airport_mcp.server"]
-        self.adapter = await self.stack.enter_async_context(MCPAdapter(command))
-        
+        self.adapter = await self.stack.enter_async_context(MCPAdapter(airport_server_app))
         tools = self.adapter.tools
-        
         
         # Remove these lines:
         # base_url = os.getenv("USAI_BASE_URL", "").rstrip("/")
