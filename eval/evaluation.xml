@@ -32,7 +32,7 @@
       <answer>4</answer>
    </qa_pair>
    <qa_pair>
-      <question>At Newark Liberty International (KEWR), identify the runway with the shortest length. What is its runway ID?</question>
+      <question>At Newark Liberty International (KEWR), identify the shortest paved airplane runway (excluding helipads). What is its runway ID?</question>
       <answer>11/29</answer>
    </qa_pair>
    <qa_pair>
