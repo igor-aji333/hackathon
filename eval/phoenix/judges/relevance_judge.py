@@ -17,7 +17,7 @@ OUT-OF-SCOPE DOMAIN:
 - Subjective travel advice, predictive delays, or personal recommendations.
 
 [USER QUERY]:
-{input}
+{reference}
 
 [AGENT RESPONSE]:
 {output}
@@ -51,7 +51,7 @@ def check_answer_scope(input: dict, output: dict) -> str:
     )
 
     result = evaluator.evaluate(
-        input=input.get("query", ""),
+        reference=input.get("query", "")
         output=output.get("responses", ""),
     )
     return result[0]
