@@ -119,6 +119,9 @@ curl -X POST "https://airport-7474654188777746.aws.databricksapps.com/mcp" \
 # Update to  the latest commit:
 databricks apps deploy airport --git-branch master
 
+# Check logs:
+databricks apps logs airport --tail-lines 100
+
 ## Data Caching
 
 - Runway data is cached for 28 days before automatic re-download
