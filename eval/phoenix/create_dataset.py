@@ -50,7 +50,6 @@ def main():
         name=target_name,
         input_keys=info["input_keys"],
         output_keys=info["output_keys"],
-        description=info.get("description", ""),
     )
     print(f"Dataset created successfully: {dataset.id}")
 
