@@ -51,7 +51,7 @@ def check_answer_scope(input: dict, output: dict) -> str:
     )
 
     result = evaluator.evaluate(
-        reference=input.get("query", "")
+        reference=input.get("query", ""),
         output=output.get("responses", ""),
     )
     return result[0]
