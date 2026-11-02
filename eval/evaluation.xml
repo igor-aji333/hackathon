@@ -8,7 +8,7 @@
       <answer>07R</answer>
    </qa_pair>
    <qa_pair>
-      <question>Examine the runway ends at Seattle-Tacoma (KSEA). Count how many runway ends have an ILS type specified. Provide only the number.</question>
+      <question>At Seattle-Tacoma (KSEA), how many total runway ends exist across all active runways? Provide only the number.</question>
       <answer>6</answer>
    </qa_pair>
    <qa_pair>
