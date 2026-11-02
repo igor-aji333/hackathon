@@ -6,21 +6,16 @@ load_dotenv()
 
 RELEVANCE_PROMPT_TEMPLATE = """
 You are evaluating whether an agent stayed within the technical boundary of the FAA Airport Runway MCP Server.
-
 IN-SCOPE DOMAIN:
 - Queries regarding US airports by FAA (e.g., 'JFK', 'ORD') or ICAO (e.g., 'KJFK', 'KORD') identifiers.
 - Runway physical specifications: length, width, surface type, condition, lighting, coordinates.
 - Runway end specifications: runway end IDs, thresholds, elevations, alignments, ILS types, visual glide path angles.
-
 OUT-OF-SCOPE DOMAIN:
 - Live flight tracking, flight schedules, delays, weather conditions/METAR/TAF, airline fleet assignments, pricing, non-US airports.
 - Subjective travel advice, predictive delays, or personal recommendations.
 
-[USER QUERY]:
-{reference}
-
-[AGENT RESPONSE]:
-{output}
+[USER QUERY]: {input}
+[AGENT RESPONSE]: {output}
 
 EVALUATION CRITERIA:
 - "within_scope": The query asks for airport structural runway/runway-end info and the agent attempts to answer it, OR the query is out-of-scope and the agent appropriately states its limitation/refuses.
@@ -28,31 +23,25 @@ EVALUATION CRITERIA:
 """
 
 def check_answer_scope(input: dict, output: dict) -> str:
-    # Remove these lines:
-    # base_url = os.getenv("USAI_BASE_URL", "").rstrip("/")
-    # if base_url and not base_url.endswith("/api/v1"):
-    #     base_url = f"{base_url}/api/v1"
-        
-    # Replace with:
     base_url = os.getenv("USAI_BASE_URL", "").rstrip("/")
-
     judge_llm = LLM(
         provider="openai",
         model=os.getenv("JUDGE_MODEL", "llama3.1"),
         api_key=os.getenv("USAI_API_KEY", "ollama"),
         base_url=base_url if base_url else None,
     )
-       
     evaluator = ClassificationEvaluator(
         name="check_answer_scope",
         llm=judge_llm,
         prompt_template=RELEVANCE_PROMPT_TEMPLATE,
         choices={"within_scope": 1, "out_of_scope": 0},
     )
-
+    # Pass the variables via the eval_input dictionary matching {input} and {output}
     result = evaluator.evaluate(
-        reference=input.get("query", ""),
-        output=output.get("responses", ""),
+        eval_input={
+            "input": input.get("query", ""),
+            "output": output.get("responses", ""),
+        }
     )
-    return result[0]
+    return getattr(result, "label", result[0] if isinstance(result, (list, tuple)) else str(result))
 

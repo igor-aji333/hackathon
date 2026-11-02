@@ -96,10 +96,10 @@ class AirportAgent:
             await self.initialize()
             
         try:
-            # Cap the agent at 5 steps to prevent infinite tool-calling loops
+            # Cap the agent at 15 steps to prevent infinite tool-calling loops
             result = await self.agent_executor.ainvoke(
                 {"messages": [("user", query)]},
-                config={"recursion_limit": 5}
+                config={"recursion_limit": 15}
             )
             
             # Extract the last message output

@@ -100,7 +100,7 @@ async def airport_get_runways(
     )],
     limit: Annotated[int, Field(description="Maximum number of runways to return", ge=1)] = 20,
     offset: Annotated[int, Field(description="Pagination offset", ge=0)] = 0,
-    response_format: Annotated[str, Field(description="Format of the response: 'json' or 'markdown'")] = "markdown"
+    response_format: Annotated[str, Field(description="Format of the response: 'json' or 'markdown'")] = "json"
 ) -> str:
     """
     Retrieve runway structural information for a specific US airport.
@@ -146,7 +146,8 @@ async def airport_get_runways(
                 width = f"{r.get('width_ft')} ft" if r.get('width_ft') else "Unknown"
                 
                 md.append(f"### Runway {r.get('rwy_id')}")
-                md.append(f"- **Dimensions**: {length} x {width}")
+                md.append(f"- **Length**: {length}")
+                md.append(f"- **Width**:  {width}")
                 
                 surf = r.get('surface')
                 cond = r.get('condition')

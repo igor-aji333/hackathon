@@ -104,7 +104,7 @@ async def airport_get_runway_ends(
     )],
     limit: Annotated[int, Field(description="Maximum number of runway ends to return", ge=1)] = 20,
     offset: Annotated[int, Field(description="Pagination offset", ge=0)] = 0,
-    response_format: Annotated[str, Field(description="Format of the response: 'json' or 'markdown'")] = "markdown"
+    response_format: Annotated[str, Field(description="Format of the response: 'json' or 'markdown'")] = "json"
 ) -> str:
     """
     Retrieve comprehensive runway end information (thresholds, elevations, alignments, glideslopes, etc.) for a specific US airport.
@@ -149,7 +149,8 @@ async def airport_get_runway_ends(
                 lat = re.get('latitude')
                 lon = re.get('longitude')
                 if lat and lon:
-                    md.append(f"- **Coordinates**: {lat}, {lon}")
+                    md.append(f"- **Latitude**: {lat}")
+                    md.append(f"- **Longitude**: {lon}")
                 
                 elev = re.get('elevation_ft')
                 if elev is not None:
