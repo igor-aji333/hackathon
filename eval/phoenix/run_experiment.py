@@ -39,8 +39,7 @@ def main():
         task=task,
         evaluators=[match_expected_response, check_answer_scope],
         experiment_name=f"airport-{args.system_prompt_version}",
-        experiment_description=f"Airport MCP evaluation using prompt {args.system_prompt_version}",
-    )
+    )   
     print(f"Experiment completed. Details available in Phoenix UI: {experiment}")
 
 
