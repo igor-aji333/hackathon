@@ -12,28 +12,28 @@
       <answer>6</answer>
    </qa_pair>
    <qa_pair>
-      <question>Between KORD (Chicago O'Hare) and KATL (Atlanta), which airport has the highest number of runways longer than 10000 feet? Provide the 4-letter ICAO code.</question>
-      <answer>KORD</answer>
+      <question>At Chicago O'Hare (KORD), how many runways have a length of 10000 feet or greater? Provide only the number.</question>
+      <answer>4</answer>
    </qa_pair>
    <qa_pair>
-      <question>Identify the runway at Denver International (KDEN) that has a length of 16000 feet. What is its surface condition code?</question>
-      <answer>GOOD</answer>
+      <question>Identify the runway at Denver International (KDEN) that has a length of 16000 feet. What is its surface type code? Provide only the code.</question>
+      <answer>CONC</answer>
    </qa_pair>
    <qa_pair>
-      <question>At San Francisco International (KSFO), what is the elevation in feet of the runway end that corresponds to the runway with the widest physical width? Provide only the number.</question>
-      <answer>13.1</answer>
+      <question>Compare all runway ends at San Francisco International (KSFO). Which runway end ID has the highest recorded elevation? Provide only the runway end ID.</question>
+      <answer>28R</answer>
    </qa_pair>
    <qa_pair>
       <question>Find the runway end at Miami International (KMIA) with the lowest recorded true alignment value. What is the runway end ID?</question>
       <answer>08L</answer>
    </qa_pair>
    <qa_pair>
-      <question>Query Boston Logan (KBOS) for its runways. What is the total combined length in feet of all runways that have a width of 150 feet? Provide only the number.</question>
-      <answer>28543</answer>
+      <question>Query Boston Logan (KBOS) for its runways. How many runways have a physical width of 150 feet? Provide only the number.</question>
+      <answer>4</answer>
    </qa_pair>
    <qa_pair>
-      <question>Compare the longest runway at Newark (KEWR) with the longest runway at LaGuardia (KLGA). What is the exact difference in length in feet? Provide only the number.</question>
-      <answer>3998</answer>
+      <question>At Newark Liberty International (KEWR), identify the runway with the shortest length. What is its runway ID?</question>
+      <answer>11/29</answer>
    </qa_pair>
    <qa_pair>
       <question>Locate runway end 22R at Detroit Metro (KDTW). What is the specified approach light system code?</question>
