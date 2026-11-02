@@ -101,22 +101,25 @@ class AirportAgent:
             # Gracefully shut down the in-memory MCP server before the event loop closes
             if hasattr(self, "stack") and self.stack:
                 await self.stack.aclose()
-                
+
     def create_experiment_task(self):
-        """Returns a synchronous execution closure required by Phoenix experiments."""
-        def task(example: Any) -> Dict[str, Any]:
+        """Returns an execution closure required by Phoenix experiments."""
+        async def task(example: Any) -> Dict[str, Any]:
             query = example.input.get("query")
             
-            # Create a fresh agent instance for this thread's event loop
+            # Create a fresh agent instance for this evaluation
             local_agent = AirportAgent(
                 system_prompt_version=self.version,
                 project_name=self.project_name,
                 endpoint=self.endpoint,
             )
             
-            output_text = asyncio.run(local_agent.run(query))
+            # Await directly to share Phoenix's master event loop
+            output_text = await local_agent.run(query)
             return {"responses": output_text}
-        return task
+            
+        return task           
+  
     
 if __name__ == "__main__":
     async def _test():
