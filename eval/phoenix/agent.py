@@ -88,14 +88,20 @@ class AirportAgent:
     async def run(self, query: str) -> str:
         if not self.agent_executor:
             await self.initialize()
-
-        result = await self.agent_executor.ainvoke({"messages": [("user", query)]})
-        # Extract the last message output
-        messages = result.get("messages", [])
-        if messages:
-            return messages[-1].content
-        return str(result)
-
+            
+        try:
+            result = await self.agent_executor.ainvoke({"messages": [("user", query)]})
+            
+            # Extract the last message output
+            messages = result.get("messages", [])
+            if messages:
+                return messages[-1].content
+            return str(result)
+        finally:
+            # Gracefully shut down the in-memory MCP server before the event loop closes
+            if hasattr(self, "stack") and self.stack:
+                await self.stack.aclose()
+                
     def create_experiment_task(self):
         """Returns a synchronous execution closure required by Phoenix experiments."""
         def task(example: Any) -> Dict[str, Any]:
