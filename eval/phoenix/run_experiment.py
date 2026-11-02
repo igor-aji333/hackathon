@@ -24,7 +24,7 @@ def main():
         raise KeyError(f"Dataset '{args.dataset_name}' not found in datasets.yaml")
 
     client = Client()
-    dataset = client.datasets.get_dataset(name=args.dataset_name)
+    dataset = client.datasets.get_dataset(dataset_name=args.dataset_name)
 
     agent = AirportAgent(
         system_prompt_version=args.system_prompt_version,
