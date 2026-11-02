@@ -208,16 +208,15 @@ Upload the benchmark dataset (`airport-eval-0`) to your Phoenix instance. You ca
 
 ```bash
 cd eval/phoenix
-uv run create_dataset.py --dataset-name airport-eval-0 --dry-run
-uv run create_dataset.py --dataset-name airport-eval-0
-
+uv run create_dataset.py --dataset-name airport-eval-xml --dry-run
+uv run create_dataset.py --dataset-name airport-eval-xml
 ```
 
 **3. Run the Experiment**
 Execute the evaluation. This spins up a LangChain agent connected to the MCP server over stdio, feeds it the dataset, and scores the responses for correctness and tool-scope relevance using the LLM-as-judge:
 
 ```bash
-uv run run_experiment.py --dataset-name airport-eval-0 --system-prompt-version v2
+uv run run_experiment.py --dataset-name airport-eval-xml --system-prompt-version v2
 
 ```
 
