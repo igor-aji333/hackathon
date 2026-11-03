@@ -1,16 +1,14 @@
 import json
 import logging
-from datetime import datetime
-from typing import Any, List, Optional, Annotated
-
+from typing import Annotated, Any, List, Optional
 import pandas as pd
 from pydantic import BaseModel, Field
 
-from .faa_data_client import FAADataService, StorageConfig, StorageManager, CACHE_EXPIRATION_DAYS
+from .base_manager import BaseAirportManager
 
 logger = logging.getLogger(__name__)
 
-# [Data Models - Leave RunwayEnd and AirportRunwayEndInfo unchanged]
+
 class RunwayEnd(BaseModel):
     rwy_id: Optional[str] = Field(None, alias="RWY_ID")
     rwy_end_id: Optional[str] = Field(None, alias="RWY_END_ID")
@@ -22,6 +20,7 @@ class RunwayEnd(BaseModel):
     approach_light_system: Optional[str] = Field(None, alias="APCH_LGT_SYSTEM_CODE")
     visual_glide_path_angle: Optional[float] = Field(None, alias="VISUAL_GLIDE_PATH_ANGLE")
 
+
 class AirportRunwayEndInfo(BaseModel):
     icao_id: Optional[str] = Field(None)
     city: Optional[str] = Field(None)
@@ -29,86 +28,87 @@ class AirportRunwayEndInfo(BaseModel):
     country: Optional[str] = Field(None)
     runway_ends: List[RunwayEnd] = Field(default_factory=list)
 
-# [Manager - Leave AirportRunwayEndManager unchanged]
-class AirportRunwayEndManager:
+
+class AirportRunwayEndManager(BaseAirportManager):
+    """Manager for querying runway end thresholds, alignments, and elevations."""
+
     def __init__(self):
-        storage = StorageManager(StorageConfig.from_env())
-        self.client = FAADataService(storage, "APT_RWY_END")
+        super().__init__(
+            dataset_name="APT_RWY_END",
+            key_columns=["ARPT_ID", "RWY_ID", "RWY_END_ID"],
+        )
 
-    async def _prepare_data(self):
-        if self.client.df is None or self.client.last_download is None or (datetime.now() - self.client.last_download).days > CACHE_EXPIRATION_DAYS:
-            await self.client.initialize()
-            df = self.client.df
-            
-            # 1. Drop columns with > 50% N/A
-            min_non_na = len(df) / 2
-            df = df.dropna(axis=1, thresh=min_non_na)
-
-            # 2. Drop rows where all columns except identifiers are N/A
-            cols_to_check = [c for c in df.columns if c not in ["ARPT_ID", "RWY_ID", "RWY_END_ID"]]
-            if cols_to_check:
-                df = df.dropna(axis=0, how='all', subset=cols_to_check)
-            
-            if "ARPT_ID" in df.columns:
-                df["ARPT_ID"] = df["ARPT_ID"].str.upper()
-                self.client.df = df.set_index("ARPT_ID")        
-
-    async def query(self, ident: str) -> dict[str, Any] | None:
+    async def query(self, ident: str) -> Optional[dict[str, Any]]:
         await self._prepare_data()
-        df = self.client.df
-        
-        ident_upper = ident.upper()
-        norm_ident = ident_upper[1:] if ident_upper.startswith("K") and len(ident_upper) == 4 else ident_upper
-        lookup_id = norm_ident if norm_ident in df.index else ident_upper
-        
-        if lookup_id not in df.index:
+        lookup_id, airport_data = self._resolve_airport_records(ident)
+
+        if airport_data is None or lookup_id is None:
             return None
-            
-        airport_data = df.loc[[lookup_id]].copy()
-        
+
         numeric_cols = ["RWY_END_ELEV", "VISUAL_GLIDE_PATH_ANGLE"]
         existing_num_cols = [col for col in numeric_cols if col in airport_data.columns]
         if existing_num_cols:
-            airport_data[existing_num_cols] = airport_data[existing_num_cols].apply(pd.to_numeric, errors="coerce")
-            
+            airport_data[existing_num_cols] = airport_data[existing_num_cols].apply(
+                pd.to_numeric, errors="coerce"
+            )
+
         records = airport_data.to_dict(orient="records")
         runway_ends = []
         for record in records:
-            # Convert NAs or empty strings to None
-            r_dict = {k: (None if pd.isna(v) or str(v).strip() == "" else v) for k, v in record.items()}
+            r_dict = {
+                k: (None if pd.isna(v) or str(v).strip() == "" else v)
+                for k, v in record.items()
+            }
             re = RunwayEnd(**r_dict)
-            
-            # Drop the runway end entirely if all meaningful payload fields are empty
-            if not any([re.latitude, re.longitude, re.elevation_ft, re.true_alignment, re.ils_type, re.approach_light_system, re.visual_glide_path_angle]):
+
+            # Discard records missing threshold navigational values
+            if not any([
+                re.latitude,
+                re.longitude,
+                re.elevation_ft,
+                re.true_alignment,
+                re.ils_type,
+                re.approach_light_system,
+                re.visual_glide_path_angle,
+            ]):
                 continue
             runway_ends.append(re)
-            
+
         first_row = airport_data.iloc[0]
         info = AirportRunwayEndInfo(
             icao_id=lookup_id,
             city=first_row.get("CITY"),
             state=first_row.get("STATE_CODE"),
             country=first_row.get("COUNTRY_CODE"),
-            runway_ends=runway_ends
+            runway_ends=runway_ends,
         )
         return info.model_dump(exclude_none=True)
 
+
 airport_runway_end_manager = AirportRunwayEndManager()
 
+
 async def airport_get_runway_ends(
-    icao_or_faa_id: Annotated[str, Field(
-        description="The 3-letter FAA identifier (e.g., 'JFK') or 4-letter ICAO identifier (e.g., 'KJFK') of the target US airport.",
-        min_length=3,
-        max_length=4,
-        pattern=r"^[A-Za-z0-9]+$"
-    )],
-    limit: Annotated[int, Field(description="Maximum number of runway ends to return", ge=1)] = 20,
-    offset: Annotated[int, Field(description="Pagination offset", ge=0)] = 0,
-    response_format: Annotated[str, Field(description="Format of the response: 'json' or 'markdown'")] = "json"
+    icao_or_faa_id: Annotated[
+        str,
+        Field(
+            description="The 3-letter FAA identifier (e.g., 'JFK') or 4-letter ICAO identifier (e.g., 'KJFK') of the target US airport.",
+            min_length=3,
+            max_length=4,
+            pattern=r"^[A-Za-z0-9]+$",
+        ),
+    ],
+    limit: Annotated[
+        int, Field(description="Maximum number of runway ends to return", ge=1)
+    ] = 20,
+    offset: Annotated[
+        int, Field(description="Pagination offset", ge=0)
+    ] = 0,
+    response_format: Annotated[
+        str, Field(description="Format of the response: 'json' or 'markdown'")
+    ] = "json",
 ) -> str:
-    """
-    Retrieve comprehensive runway end information (thresholds, elevations, alignments, glideslopes, etc.) for a specific US airport.
-    """
+    """Retrieve comprehensive runway end information for a specific US airport."""
     try:
         result = await airport_runway_end_manager.query(icao_or_faa_id)
         if result is None:
@@ -116,7 +116,7 @@ async def airport_get_runway_ends(
             if response_format == "json":
                 return json.dumps({"isError": True, "error": error_msg})
             return f"**Error**: {error_msg}\nEnsure you are querying a valid US airport."
-            
+
         runway_ends = result.get("runway_ends", [])
         total = len(runway_ends)
         paginated_ends = runway_ends[offset : offset + limit]
@@ -135,51 +135,51 @@ async def airport_get_runway_ends(
                 "city": result.get("city"),
                 "state": result.get("state"),
                 "country": result.get("country"),
-                "items": paginated_ends
+                "items": paginated_ends,
             }
-            # Strip None values so they don't appear as 'null' in JSON
             response_data = {k: v for k, v in response_data.items() if v is not None}
             return json.dumps(response_data, indent=2)
         else:
             md = [f"# Runway Ends for {result['icao_id']}"]
             md.append("")
             for re in paginated_ends:
-                md.append(f"### Runway End {re.get('rwy_end_id')} (Runway {re.get('rwy_id')})")
-                
-                lat = re.get('latitude')
-                lon = re.get('longitude')
+                md.append(
+                    f"### Runway End {re.get('rwy_end_id')} (Runway {re.get('rwy_id')})"
+                )
+
+                lat = re.get("latitude")
+                lon = re.get("longitude")
                 if lat and lon:
                     md.append(f"- **Latitude**: {lat}")
                     md.append(f"- **Longitude**: {lon}")
-                
-                elev = re.get('elevation_ft')
+
+                elev = re.get("elevation_ft")
                 if elev is not None:
                     md.append(f"- **Elevation**: {elev} ft")
-                    
-                alignment = re.get('true_alignment')
+
+                alignment = re.get("true_alignment")
                 if alignment:
                     md.append(f"- **Alignment**: {alignment}")
-                    
-                ils = re.get('ils_type')
+
+                ils = re.get("ils_type")
                 if ils:
                     md.append(f"- **ILS Type**: {ils}")
-                    
-                angle = re.get('visual_glide_path_angle')
+
+                angle = re.get("visual_glide_path_angle")
                 if angle is not None:
                     md.append(f"- **Glide Path Angle**: {angle} degrees")
 
-                als = re.get('approach_light_system')
+                als = re.get("approach_light_system")
                 if als:
-                    md.append(f"- **Approach Lights**: {als}")                    
-                    
+                    md.append(f"- **Approach Lights**: {als}")
+
                 md.append("\n---")
-                
+
             md.append(f"*Showing {count} of {total} items. (Offset: {offset})*")
             if has_more:
                 md.append(f"*Use `offset={next_offset}` to see more.*")
-                
-            return "\n".join(md)
 
+            return "\n".join(md)
 
     except Exception as e:
         logger.error(f"Runway Ends query execution failed for {icao_or_faa_id}: {e}")
