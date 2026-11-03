@@ -72,34 +72,34 @@ Add to your MCP client configuration:
 ```
 
 ## Test DataBricks deployment
-# Login
+### Login
 ```bash
 databricks auth login --host https://dbc-aae0ba16-8727.cloud.databricks.com
 ```
 
-# Verify login:
+### Verify login:
 ```bash
 databricks current-user me
 ```
 
 
-# Update to  the latest commit:
+### Update to  the latest commit:
 ```bash
 databricks apps deploy airport --git-branch master
 ```
 
-# Check logs:
+### Check logs:
 ```bash
 databricks apps logs airport --tail-lines 100
 ```
 
-# Get the token:
+### Get the token:
 ```bash
 DATABRICKS_TOKEN="$(databricks auth token --output json | jq -r .access_token)"
 ```
 
 
-# Get session id:
+### Get session id:
 ```bash
 SESSION_ID=$(curl -s -i -X POST "https://airport-7474654188777746.aws.databricksapps.com/mcp" \
   -H "Content-Type: application/json" \
@@ -118,7 +118,7 @@ SESSION_ID=$(curl -s -i -X POST "https://airport-7474654188777746.aws.databricks
 
 ```
 
-# Make a request:
+### Make a request:
 ```bash
 curl -s -X POST "https://airport-7474654188777746.aws.databricksapps.com/mcp" \
      -H "Content-Type: application/json" \
