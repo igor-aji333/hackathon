@@ -71,53 +71,17 @@ Add to your MCP client configuration:
 }
 ```
 
+## Test DataBricks deployment
+# Login
 ```bash
-# Databricks workspace/profile: dbc-aae0ba16-8727
-databricks auth login --host [https://dbc-aae0ba16-8727.cloud.databricks.com](https://dbc-aae0ba16-8727.cloud.databricks.com)
+databricks auth login --host https://dbc-aae0ba16-8727.cloud.databricks.com
+```
+
 # Verify login:
+```bash
 databricks current-user me
-# get the token:
-DATABRICKS_TOKEN="$(databricks auth token --output json | jq -r .access_token)"
 ```
 
-
-# Getting session id:
-```bash
-curl -i -X POST "https://airport-7474654188777746.aws.databricksapps.com/mcp" \
-     -H "Content-Type: application/json" \
-     -H "Authorization: Bearer $DATABRICKS_TOKEN" \
-     -H "Mcp-Protocol-Version: 2025-03-26" \
-     -d '{
-       "jsonrpc": "2.0",
-       "id": 1,
-       "method": "initialize",
-       "params": {
-         "protocolVersion": "2025-03-26",
-         "capabilities": {},
-         "clientInfo": {"name": "curl-test", "version": "1.0.0"}
-       }
-     }'
-```
-
-# Making a request:
-```bash
-curl -X POST "https://airport-7474654188777746.aws.databricksapps.com/mcp" \
-     -H "Content-Type: application/json" \
-     -H "Authorization: Bearer $DATABRICKS_TOKEN" \
-     -H "Mcp-Protocol-Version: 2025-03-26" \
-     -H "Mcp-Session-Id: <YOUR_SESSION_ID_HERE>" \
-     -d '{
-       "jsonrpc": "2.0",
-       "id": 2,
-       "method": "tools/call",
-       "params": {
-         "name": "airport_get_runways",
-         "arguments": {
-           "icao_or_faa_id": "JFK"
-         }
-       }
-     }'
-```    
 
 # Update to  the latest commit:
 ```bash
@@ -128,6 +92,58 @@ databricks apps deploy airport --git-branch master
 ```bash
 databricks apps logs airport --tail-lines 100
 ```
+
+# Get the token:
+```bash
+DATABRICKS_TOKEN="$(databricks auth token --output json | jq -r .access_token)"
+```
+
+
+# Get session id:
+```bash
+SESSION_ID=$(curl -s -i -X POST "https://airport-7474654188777746.aws.databricksapps.com/mcp" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $DATABRICKS_TOKEN" \
+  -H "Mcp-Protocol-Version: 2025-03-26" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+      "protocolVersion": "2025-03-26",
+      "capabilities": {},
+      "clientInfo": {"name": "curl-test", "version": "1.0.0"}
+    }
+  }' | grep -i '^mcp-session-id:' | awk '{print $2}' | tr -d '\r')
+
+```
+
+# Make a request:
+```bash
+curl -s -X POST "https://airport-7474654188777746.aws.databricksapps.com/mcp" \
+     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer $DATABRICKS_TOKEN" \
+     -H "Mcp-Protocol-Version: 2025-03-26" \
+     -H "Mcp-Session-Id: $SESSION_ID" \
+     -d '{
+       "jsonrpc": "2.0",
+       "id": 2,
+       "method": "tools/call",
+       "params": {
+         "name": "airport_get_runways",
+         "arguments": {
+           "icao_or_faa_id": "DCA",
+           "response_format": "json"
+         }
+       }
+     }' | sed -n 's/^data: //p' | jq -r '
+    .result.content[0].text | fromjson as $d |
+    "### Runways for \($d.icao_id) (\($d.city), \($d.state), \($d.country))\n",
+    "| Runway | Length (ft) | Width (ft) | Surface | Condition | Lights |",
+    "|---|---|---|---|---|---|",
+    ($d.items[] | "| \(.rwy_id) | \(.length_ft | floor) | \(.width_ft | floor) | \(.surface) | \(.condition) | \(.lights) |")
+  '
+```    
 
 ## Data Caching
 
