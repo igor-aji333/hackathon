@@ -28,15 +28,17 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest",
+    "pytest-asyncio>=0.23.0",
     "black",
     "flake8"
-] # <-- FIXED
+]
 s3 = [
     "boto3>=1.34.0"        # <-- FIXED: Added missing [s3] target from DEPLOYMENT.md
 ]
 
 [dependency-groups]
 dev = [
+    "pytest-asyncio>=0.23.0",
     "arize-phoenix>=18.0.0",
     "arize-phoenix-client>=2.13.0",
     "arize-phoenix-evals>=3.1.1",
@@ -47,7 +49,14 @@ dev = [
     "opentelemetry-sdk>=1.43.0",
     "pandas>=2.0.0",
     "pyyaml>=6.0.0"
-] # <-- FIXED
+]
+
 
 [tool.setuptools]
 packages = ["airport_mcp"]
+
+[tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "function"
+filterwarnings = [
+    "ignore::DeprecationWarning:ldap3.*",
+]
