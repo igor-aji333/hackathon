@@ -1,14 +1,15 @@
-def match_expected_response(input: dict, output: dict, expected: dict) -> str:
-    """
-    Evaluates correctness using DIRECT STRING COMPARISON as mandated by the MCP Guide.
-    This replaces the LLM evaluator to ensure verifiable, exact match grading.
-    """
+# eval/phoenix/judges/correctness_judge.py
+from typing import Any, Dict
+
+
+def match_expected_response(output: Dict[str, Any], expected: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+    """Evaluates correctness using string comparison against ground truth."""
     agent_response = str(output.get("responses", "")).strip().lower()
-    ground_truth = str(expected.get("expected", "")).strip().lower()
-    
-    if ground_truth == agent_response:
-        return "correct"
-    elif ground_truth in agent_response:
-        return "correct"
-    else:
-        return "incorrect"
+    ground_truth = str(expected.get("expected") or expected.get("answer", "")).strip().lower()
+
+    is_correct = bool(ground_truth and (ground_truth == agent_response or ground_truth in agent_response))
+
+    return {
+        "score": 1 if is_correct else 0,
+        "label": "correct" if is_correct else "incorrect",
+    }
