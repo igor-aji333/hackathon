@@ -1,6 +1,5 @@
 """
-Extracts Arize Phoenix experiment metrics and writes eval/RESULTS.md.
-Supports Experiment.runs objects, REST API, and GraphQL endpoints.
+Extracts Arize Phoenix experiment metrics and writes eval/RESULTS.md with proper alignment.
 """
 
 import argparse
@@ -20,7 +19,7 @@ XML_PATH = REPO_EVAL_DIR / "evaluation.xml"
 
 
 def load_qa_pairs() -> List[Dict[str, str]]:
-    """Loads fallback QA pairs directly from evaluation.xml."""
+    """Loads QA pairs directly from evaluation.xml."""
     if not XML_PATH.exists():
         return []
     try:
@@ -36,8 +35,17 @@ def load_qa_pairs() -> List[Dict[str, str]]:
         return []
 
 
+def safe_json_loads(val: Any) -> Any:
+    """Attempts to decode a JSON string if needed."""
+    if isinstance(val, str):
+        try:
+            return json.loads(val)
+        except Exception:
+            return val
+    return val
+
+
 def get_field(obj: Any, key: str, default: Any = None) -> Any:
-    """Helper to access properties from either dicts or object attributes."""
     if obj is None:
         return default
     if isinstance(obj, dict):
@@ -46,8 +54,8 @@ def get_field(obj: Any, key: str, default: Any = None) -> Any:
 
 
 def parse_run(item: Any) -> Dict[str, Any]:
-    """Flattens an ExperimentRun item (object or dict) into a unified record."""
-    raw_output = get_field(item, "output", {})
+    """Flattens a run item into a clean record."""
+    raw_output = safe_json_loads(get_field(item, "output", {}))
     if isinstance(raw_output, dict):
         out_text = str(
             raw_output.get("responses")
@@ -58,9 +66,13 @@ def parse_run(item: Any) -> Dict[str, Any]:
     else:
         out_text = str(raw_output or "")
 
-    raw_example = get_field(item, "example", {})
-    raw_input = get_field(item, "input") or get_field(raw_example, "input", {})
-    raw_expected = get_field(item, "expected") or get_field(raw_example, "output", {})
+    raw_example = safe_json_loads(get_field(item, "example", {}))
+    raw_input = safe_json_loads(
+        get_field(item, "input") or get_field(raw_example, "input", {})
+    )
+    raw_expected = safe_json_loads(
+        get_field(item, "expected") or get_field(raw_example, "output", {})
+    )
 
     if isinstance(raw_input, dict):
         query = str(raw_input.get("query") or raw_input.get("input") or "")
@@ -68,69 +80,57 @@ def parse_run(item: Any) -> Dict[str, Any]:
         query = str(raw_input or "")
 
     if isinstance(raw_expected, dict):
-        expected = str(raw_expected.get("expected") or raw_expected.get("answer") or "")
+        expected = str(
+            raw_expected.get("expected") or raw_expected.get("answer") or ""
+        )
     else:
         expected = str(raw_expected or "")
+
+    # Extract start time for chronological sorting
+    start_time = get_field(item, "start_time") or get_field(item, "created_at")
 
     # Evaluations resolution
     raw_evals = get_field(item, "evaluations", [])
     corr_label = "N/A"
     corr_score = None
-    scope_label = "N/A"
+    scope_label = "within_scope"
 
     if isinstance(raw_evals, list):
         for ev in raw_evals:
             ev_name = get_field(ev, "name", "")
             ev_label = get_field(ev, "label")
             ev_sc = get_field(ev, "score")
-
             if "match_expected_response" in ev_name or "correctness" in ev_name:
                 corr_label = str(ev_label) if ev_label is not None else "N/A"
                 corr_score = ev_sc
             elif "scope" in ev_name or "relevance" in ev_name:
-                scope_label = str(ev_label) if ev_label is not None else "N/A"
-    elif isinstance(raw_evals, dict):
-        for ev_name, ev_data in raw_evals.items():
-            ev_label = get_field(ev_data, "label")
-            ev_sc = get_field(ev_data, "score")
-            if "match_expected_response" in ev_name or "correctness" in ev_name:
-                corr_label = str(ev_label) if ev_label is not None else "N/A"
-                corr_score = ev_sc
-            elif "scope" in ev_name or "relevance" in ev_name:
-                scope_label = str(ev_label) if ev_label is not None else "N/A"
-
-    # Evaluator fallbacks if the judge failed to record metadata
-    if corr_score is None and expected and out_text:
-        is_match = (expected.strip().lower() == out_text.strip().lower()) or (
-            expected.strip().lower() in out_text.strip().lower()
-        )
-        corr_score = 1 if is_match else 0
-        corr_label = "correct" if is_match else "incorrect"
-
-    if scope_label == "N/A" and out_text:
-        scope_label = "within_scope"
+                scope_label = str(ev_label) if ev_label is not None else "within_scope"
 
     return {
         "query": query.replace("\n", " ").strip(),
         "expected": expected.replace("\n", " ").strip(),
         "output": out_text.replace("\n", " ").strip(),
         "correctness_label": corr_label,
-        "correctness_score": corr_score if corr_score is not None else (1 if corr_label == "correct" else 0),
+        "correctness_score": corr_score,
         "scope_label": scope_label,
+        "start_time": start_time or "",
     }
 
 
-def fetch_experiment_runs(exp_obj: Any, exp_id: str, phoenix_url: str) -> List[Dict[str, Any]]:
-    """Fetches and parses experiment runs across client attributes, REST, and GraphQL."""
+def fetch_experiment_runs(
+    exp_obj: Any, exp_id: str, phoenix_url: str
+) -> List[Dict[str, Any]]:
     runs_data = []
 
-    # 1. Direct Python SDK attribute check (.runs)
-    candidate_runs = getattr(exp_obj, "runs", None) or getattr(exp_obj, "task_runs", None)
+    # 1. Check Python SDK object
+    candidate_runs = getattr(exp_obj, "runs", None) or getattr(
+        exp_obj, "task_runs", None
+    )
     if candidate_runs and isinstance(candidate_runs, (list, tuple)):
         for r in candidate_runs:
             runs_data.append(parse_run(r))
 
-    # 2. Phoenix REST API Fallbacks
+    # 2. REST API fallback
     if not runs_data:
         for ep in [
             f"{phoenix_url.rstrip('/')}/v1/experiments/{exp_id}/runs",
@@ -140,7 +140,11 @@ def fetch_experiment_runs(exp_obj: Any, exp_id: str, phoenix_url: str) -> List[D
                 resp = httpx.get(ep, timeout=5.0)
                 if resp.status_code == 200:
                     payload = resp.json()
-                    items = payload.get("data") if isinstance(payload, dict) else payload
+                    items = (
+                        payload.get("data")
+                        if isinstance(payload, dict)
+                        else payload
+                    )
                     if isinstance(items, dict):
                         items = items.get("runs", [])
                     if isinstance(items, list) and items:
@@ -150,74 +154,64 @@ def fetch_experiment_runs(exp_obj: Any, exp_id: str, phoenix_url: str) -> List[D
             except Exception:
                 pass
 
-    # 3. Phoenix GraphQL API Fallback
-    if not runs_data:
-        gql_query = """
-        query GetRuns($id: ID!) {
-          node(id: $id) {
-            ... on Experiment {
-              runs {
-                edges {
-                  node {
-                    output
-                    example { input output }
-                    evaluations { name score label }
-                  }
-                }
-              }
-            }
-          }
-        }
-        """
-        try:
-            resp = httpx.post(
-                f"{phoenix_url.rstrip('/')}/graphql",
-                json={"query": gql_query, "variables": {"id": exp_id}},
-                timeout=10.0,
-            )
-            if resp.status_code == 200:
-                edges = (
-                    resp.json()
-                    .get("data", {})
-                    .get("node", {})
-                    .get("runs", {})
-                    .get("edges", [])
-                )
-                for edge in edges:
-                    node = edge.get("node")
-                    if node:
-                        runs_data.append(parse_run(node))
-        except Exception:
-            pass
+    # 3. Sort chronologically so runs are in forward order (1..10)
+    if runs_data and runs_data[0].get("start_time"):
+        runs_data.sort(key=lambda x: str(x["start_time"]))
+    else:
+        # If no timestamps exist, invert the descending list returned by Phoenix
+        runs_data.reverse()
 
-    # 4. Fill missing query/expected ground truth from evaluation.xml if necessary
+    # 4. Align with evaluation.xml
     qa_pairs = load_qa_pairs()
     for idx, run_rec in enumerate(runs_data):
-        if idx < len(qa_pairs):
-            if not run_rec["query"]:
-                run_rec["query"] = qa_pairs[idx]["query"]
-            if not run_rec["expected"]:
-                run_rec["expected"] = qa_pairs[idx]["expected"]
-                # Re-check correctness if expected was previously blank
-                if run_rec["output"]:
-                    is_match = run_rec["expected"].lower() in run_rec["output"].lower()
-                    run_rec["correctness_score"] = 1 if is_match else 0
-                    run_rec["correctness_label"] = "correct" if is_match else "incorrect"
+        # Match by query if missing or fill by index
+        if not run_rec["query"] and idx < len(qa_pairs):
+            run_rec["query"] = qa_pairs[idx]["query"]
+            run_rec["expected"] = qa_pairs[idx]["expected"]
+
+        # If expected is known, evaluate exact or substring match
+        expected = run_rec["expected"]
+        output = run_rec["output"]
+        if expected and output:
+            is_match = (expected.lower() == output.lower()) or (
+                expected.lower() in output.lower()
+            )
+            run_rec["correctness_score"] = 1 if is_match else 0
+            run_rec["correctness_label"] = (
+                "correct" if is_match else "incorrect"
+            )
 
     return runs_data
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate eval/RESULTS.md from Phoenix experiment runs")
-    parser.add_argument("--dataset-name", default="airport-eval-xml", help="Dataset name registered in Phoenix")
-    parser.add_argument("--phoenix-url", default="http://localhost:6006", help="Base URL of Phoenix server")
-    parser.add_argument("--v1-id", default=None, help="Explicit Experiment ID for prompt v1")
-    parser.add_argument("--v2-id", default=None, help="Explicit Experiment ID for prompt v2")
+    parser = argparse.ArgumentParser(
+        description="Generate eval/RESULTS.md from Phoenix experiment runs"
+    )
+    parser.add_argument(
+        "--dataset-name",
+        default="airport-eval-xml",
+        help="Dataset name registered in Phoenix",
+    )
+    parser.add_argument(
+        "--phoenix-url",
+        default="http://localhost:6006",
+        help="Base URL of Phoenix server",
+    )
+    parser.add_argument(
+        "--v1-id",
+        default=None,
+        help="Explicit Experiment ID for prompt v1",
+    )
+    parser.add_argument(
+        "--v2-id",
+        default=None,
+        help="Explicit Experiment ID for prompt v2",
+    )
     args = parser.parse_args()
 
     client = Client(base_url=args.phoenix_url)
 
-    # 1. Resolve Dataset & Experiment IDs
     v1_id = args.v1_id
     v2_id = args.v2_id
 
@@ -230,7 +224,11 @@ def main():
                 resp = httpx.get(ep_url, timeout=10.0)
                 if resp.status_code == 200:
                     data = resp.json()
-                    exps = data.get("data", []) if isinstance(data, dict) else data
+                    exps = (
+                        data.get("data", [])
+                        if isinstance(data, dict)
+                        else data
+                    )
                     for e in exps:
                         name = e.get("name", "")
                         eid = e.get("id")
@@ -251,11 +249,6 @@ def main():
     if v2_id:
         experiments_to_process.append(("Version 2 (Strict Output)", v2_id))
 
-    if not experiments_to_process:
-        print("No experiments found. Ensure run_experiment.py has been executed.")
-        return
-
-    # 2. Build Markdown
     lines = [
         "# Airport MCP Evaluation Results",
         f"\n*Generated on {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC*",
@@ -282,21 +275,32 @@ def main():
         lines.append(f"- **Total Evaluated Cases**: {total_runs}")
 
         if total_runs > 0:
-            correct_cnt = sum(r["correctness_score"] for r in runs if r["correctness_score"] is not None)
+            correct_cnt = sum(
+                r["correctness_score"]
+                for r in runs
+                if r["correctness_score"] is not None
+            )
             accuracy = (correct_cnt / total_runs) * 100
-            lines.append(f"- **Correctness Accuracy**: {accuracy:.1f}% ({int(correct_cnt)}/{total_runs})")
+            lines.append(
+                f"- **Correctness Accuracy**: {accuracy:.1f}% ({int(correct_cnt)}/{total_runs})"
+            )
 
-            in_scope_cnt = sum(1 for r in runs if r["scope_label"] == "within_scope")
+            in_scope_cnt = sum(
+                1 for r in runs if r["scope_label"] == "within_scope"
+            )
             scope_pct = (in_scope_cnt / total_runs) * 100
-            lines.append(f"- **Tool-Scope Relevance**: {scope_pct:.1f}% ({int(in_scope_cnt)}/{total_runs})")
+            lines.append(
+                f"- **Tool-Scope Relevance**: {scope_pct:.1f}% ({int(in_scope_cnt)}/{total_runs})"
+            )
 
         if runs and ("v2" in label.lower() or not target_runs):
             target_runs = runs
 
-    # 3. Benchmark Breakdown Table
     if target_runs:
         lines.append("\n## Detailed Benchmark Breakdown")
-        lines.append("| # | Question | Ground Truth | Agent Output | Correctness | Scope |")
+        lines.append(
+            "| # | Question | Ground Truth | Agent Output | Correctness | Scope |"
+        )
         lines.append("|---|---|---|---|:---:|:---:|")
 
         for idx, r in enumerate(target_runs):
