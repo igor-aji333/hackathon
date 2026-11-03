@@ -39,11 +39,7 @@ class BaseAirportManager(ABC):
         ):
             await self.client.initialize()
             df = self.client.df
-
-            # 1. Drop columns where more than 50% of values are missing
-            min_non_na = len(df) / 2
-            df = df.dropna(axis=1, thresh=min_non_na)
-
+           
             # 2. Drop rows where all columns outside the primary keys are missing
             cols_to_check = [c for c in df.columns if c not in self.key_columns]
             if cols_to_check:

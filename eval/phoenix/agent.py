@@ -19,8 +19,6 @@ from langchain_openai import ChatOpenAI
 from openinference.instrumentation.langchain import LangChainInstrumentor
 import phoenix.otel
 
-from mcp import StdioServerParameters
-from langchain.mcp import MCPAdapter
 from airport_mcp.server import mcp as airport_server_app
 
 _OTEL_INITIALIZED = False
