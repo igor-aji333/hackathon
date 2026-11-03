@@ -157,7 +157,8 @@ async def airport_get_runways(
                 lat = r.get('latitude_1')
                 lon = r.get('longitude_1')
                 if lat and lon:
-                    md.append(f"- **Coordinates**: {lat}, {lon}")
+                    md.append(f"- **Latitude**: {lat}")
+                    md.append(f"- **Longitude**: {lon}")
                 
                 lights = r.get('lights')
                 if lights:

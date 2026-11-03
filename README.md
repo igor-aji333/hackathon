@@ -51,8 +51,7 @@ python -m airport_mcp.server
 Run with HTTP/SSE transport:
 
 ```bash
-MCP_TRANSPORT=streamable-http python -m airport_mcp.server
-
+MCP_TRANSPORT=streamable-http PORT=8080 python -m airport_mcp.server
 ```
 
 ## Storage Backends
@@ -145,6 +144,7 @@ Add to `.opencode/mcp.json` using SSE:
 
 ```bash
 python -c "import asyncio; from airport_mcp.airport_get_runways import airport_get_runways; print(asyncio.run(airport_get_runways('DCA')))"
+python -c "import asyncio; from airport_mcp.airport_get_runway_ends import airport_get_runway_ends; print(asyncio.run(airport_get_runway_ends('DCA', response_format='markdown')))"
 
 ```
 
