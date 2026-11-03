@@ -82,6 +82,7 @@ DATABRICKS_TOKEN="$(databricks auth token --output json | jq -r .access_token)"
 
 
 # Getting session id:
+```bash
 curl -i -X POST "https://airport-7474654188777746.aws.databricksapps.com/mcp" \
      -H "Content-Type: application/json" \
      -H "Authorization: Bearer $DATABRICKS_TOKEN" \
@@ -96,8 +97,10 @@ curl -i -X POST "https://airport-7474654188777746.aws.databricksapps.com/mcp" \
          "clientInfo": {"name": "curl-test", "version": "1.0.0"}
        }
      }'
+```
 
 # Making a request:
+```bash
 curl -X POST "https://airport-7474654188777746.aws.databricksapps.com/mcp" \
      -H "Content-Type: application/json" \
      -H "Authorization: Bearer $DATABRICKS_TOKEN" \
@@ -114,13 +117,17 @@ curl -X POST "https://airport-7474654188777746.aws.databricksapps.com/mcp" \
          }
        }
      }'
-     
+```    
 
 # Update to  the latest commit:
+```bash
 databricks apps deploy airport --git-branch master
+```
 
 # Check logs:
+```bash
 databricks apps logs airport --tail-lines 100
+```
 
 ## Data Caching
 
