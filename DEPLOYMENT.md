@@ -35,10 +35,14 @@ python -m airport_mcp.server
 
 The server supports multiple storage backends for caching the CSV data:
 
+
 ### Local Filesystem (default)
 Data is stored in `~/.airport_mcp_data/`:
-- `apt_rwy.csv` - Runway data
-- `download_time.txt` - Last download timestamp
+- `<dataset>.parquet` - Parquet runway datasets
+- `nasr_cycle_timestamp.txt` - NASR cycle timestamp
+
+### Databricks
+Data is automatically stored to `/Volumes/main/default/airport_mcp_data` (configurable via `AIRPORT_MCP_DATABRICKS_PATH`) when running inside Databricks (detected via `DATABRICKS_RUNTIME_VERSION` environment variable).
 
 ### AWS S3
 Set the following environment variables:
@@ -53,13 +57,8 @@ Install boto3:
 pip install -e ".[s3]"
 ```
 
-### Databricks
-Data is automatically stored to `/dbfs/mnt/airport_mcp_data/` when running inside Databricks (detected via `DATABRICKS_RUNTIME_VERSION` environment variable).
-
 ## MCP Client Configuration
-
 Add to your MCP client configuration:
-
 ```json
 {
   "mcpServers": {
@@ -72,14 +71,15 @@ Add to your MCP client configuration:
 }
 ```
 
-# Dataricks workspace/profile: dbc-aae0ba16-8727
-databricks auth login --host https://dbc-aae0ba16-8727.cloud.databricks.com
-
+```bash
+# Databricks workspace/profile: dbc-aae0ba16-8727
+databricks auth login --host [https://dbc-aae0ba16-8727.cloud.databricks.com](https://dbc-aae0ba16-8727.cloud.databricks.com)
 # Verify login:
 databricks current-user me
-
 # get the token:
 DATABRICKS_TOKEN="$(databricks auth token --output json | jq -r .access_token)"
+```
+
 
 # Getting session id:
 curl -i -X POST "https://airport-7474654188777746.aws.databricksapps.com/mcp" \

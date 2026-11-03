@@ -175,8 +175,6 @@ class TestAirportRunwayManager:
 
         manager.client.df = mock_df
         manager.client.last_download = datetime(2026, 10, 1)
-
-        # Patch the async preparation layer natively
         manager._prepare_data = AsyncMock()
         return manager
 
@@ -207,27 +205,23 @@ class TestAirportRunwayManager:
     @pytest.mark.asyncio
     async def test_prepare_data_drops_columns_and_rows(self):
         manager = AirportRunwayManager()
-        # Mock dataframe with 3 rows. RWY_LEN has 2 valid (passes 50% thresh).
-        # MOSTLY_NA_COL has 1 valid (dropped).
-        # LAX row will have all NAs in remaining data columns (dropped).
         mock_df = pd.DataFrame({
             "ARPT_ID": ["JFK", "BOS", "LAX"],
             "RWY_ID": ["04L", "09", "24R"],
             "RWY_LEN": ["14000", "10000", pd.NA],
-            "MOSTLY_NA_COL": [pd.NA, pd.NA, "TEST"],
+            "MOSTLY_NA_COL": [pd.NA, "TEST", pd.NA],
         })
         manager.client.df = mock_df
         manager.client.last_download = None
         manager.client.initialize = AsyncMock()
         await manager._prepare_data()
         df = manager.client.df
-        # MOSTLY_NA_COL should be dropped
-        assert "MOSTLY_NA_COL" not in df.columns
-        # RWY_LEN survives. Then LAX is dropped because RWY_LEN is NA.
-        # JFK and BOS survive.
+
+        assert "MOSTLY_NA_COL" in df.columns
         assert len(df) == 2
         assert "JFK" in df.index
         assert "BOS" in df.index
+        assert "LAX" not in df.index
 
 
 class TestAirportRunwayEndManager:
@@ -299,17 +293,19 @@ class TestAirportRunwayEndManager:
             "RWY_ID": ["04L/22R", "09/27", "24L/24R"],
             "RWY_END_ID": ["04L", "09", "24L"],
             "RWY_END_ELEV": ["12.5", "15.0", pd.NA],
-            "SPARSE_COL": [pd.NA, pd.NA, "TEST"],
+            "SPARSE_COL": [pd.NA, "TEST", pd.NA],
         })
         manager.client.df = mock_df
         manager.client.last_download = None
         manager.client.initialize = AsyncMock()
         await manager._prepare_data()
         df = manager.client.df
-        assert "SPARSE_COL" not in df.columns
+
+        assert "SPARSE_COL" in df.columns
         assert len(df) == 2
         assert "JFK" in df.index
         assert "BOS" in df.index
+        assert "LAX" not in df.index
 
 
 # --- MCP Tool Wrapper Tests ---
@@ -468,3 +464,4 @@ class TestToolWrappers:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+    

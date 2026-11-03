@@ -38,6 +38,7 @@ s3 = [
 
 [dependency-groups]
 dev = [
+    "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
     "arize-phoenix>=18.0.0",
     "arize-phoenix-client>=2.13.0",
@@ -50,7 +51,6 @@ dev = [
     "pandas>=2.0.0",
     "pyyaml>=6.0.0"
 ]
-
 
 [tool.setuptools]
 packages = ["airport_mcp"]

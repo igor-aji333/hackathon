@@ -39,16 +39,17 @@ class BaseAirportManager(ABC):
         ):
             await self.client.initialize()
             df = self.client.df
-           
-            # 2. Drop rows where all columns outside the primary keys are missing
+
+            # Drop rows where all columns outside the primary keys are missing
             cols_to_check = [c for c in df.columns if c not in self.key_columns]
             if cols_to_check:
                 df = df.dropna(axis=0, how="all", subset=cols_to_check)
 
             if "ARPT_ID" in df.columns:
                 df["ARPT_ID"] = df["ARPT_ID"].str.upper()
-                self.client.df = df.set_index("ARPT_ID")
-
+                df = df.set_index("ARPT_ID")
+            self.client.df = df
+            
     def _resolve_airport_records(self, ident: str) -> tuple[Optional[str], Optional[pd.DataFrame]]:
         """Resolve either 3-letter FAA or 4-letter ICAO index rows from cached DataFrame."""
         df = self.client.df
