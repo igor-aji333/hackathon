@@ -15,8 +15,6 @@ class Runway(BaseModel):
     width_ft: Optional[float] = Field(None, alias="RWY_WIDTH")
     surface: Optional[str] = Field(None, alias="SURFACE_TYPE_CODE")
     condition: Optional[str] = Field(None, alias="COND")
-    latitude_1: Optional[str] = Field(None, alias="LAT1_DECIMAL")
-    longitude_1: Optional[str] = Field(None, alias="LONG1_DECIMAL")
     lights: Optional[str] = Field(None, alias="RWY_LGT_CODE")
 
 
@@ -61,8 +59,6 @@ class AirportRunwayManager(BaseAirportManager):
                 rwy.width_ft,
                 rwy.surface,
                 rwy.condition,
-                rwy.latitude_1,
-                rwy.longitude_1,
                 rwy.lights,
             ]):
                 continue
@@ -154,11 +150,6 @@ async def airport_get_runways(
                     md.append(
                         f"- **Surface**: {surf or 'Unknown'} (Condition: {cond or 'Unknown'})"
                     )
-
-                lat = r.get("latitude_1")
-                lon = r.get("longitude_1")
-                if lat and lon:
-                    md.append(f"- **Coordinates**: {lat}, {lon}")
 
                 lights = r.get("lights")
                 if lights:

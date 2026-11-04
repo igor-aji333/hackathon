@@ -90,7 +90,7 @@ Query an airport by ICAO or FAA identifier to get runway structural information.
 * `icao_or_faa_id` (string): The airport identifier (e.g., 'JFK', 'KLAX')
 
 **Returns (JSON):**
-Provides array of runways with `rwy_id`, `length_ft`, `width_ft`, `surface`, `condition`, coordinates, and `lights`.
+Provides array of runways with `rwy_id`, `length_ft`, `width_ft`, `surface`, `condition`, and `lights`.
 
 ### 2. `airport_get_runway_ends(icao_or_faa_id)`
 

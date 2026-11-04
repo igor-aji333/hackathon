@@ -29,8 +29,6 @@ JSON object (or markdown string) containing:
   - `width_ft`: Runway width in feet[cite: 1]
   - `surface`: Surface type code[cite: 1]
   - `condition`: Condition code[cite: 1]
-  - `latitude_1`: Coordinate pair latitude[cite: 1]
-  - `longitude_1`: Coordinate pair longitude[cite: 1]
   - `lights`: Lighting code[cite: 1]
 
 ### 2. `airport_get_runway_ends(icao_or_faa_id)`
@@ -111,8 +109,6 @@ JSON object (or markdown string) containing:
       "width_ft": 200.0,
       "surface": "ASPH-CONC-G",
       "condition": "GOOD",
-      "latitude_1": "40-38-09.9575N",
-      "longitude_1": "073-47-21.7225W",
       "lights": "HIGH"
     }
   ]
