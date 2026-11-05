@@ -63,15 +63,54 @@ class StorageConfig:
             
         return cls(backend=backend, local_path=Path.home() / DEFAULT_LOCAL_DIR_NAME)
 
+
 class StorageManager:
     """Manages persistent connections and dynamic I/O for cached data and archives."""
     def __init__(self, config: StorageConfig):
         self.config = config
         self._s3_client = None
         
-        if self.config.backend in (StorageBackend.LOCAL, StorageBackend.DATABRICKS):
+        if self.config.backend == StorageBackend.DATABRICKS:
+            self.base_dir = self.config.local_path
+            self._ensure_unity_catalog_volume()
+            
+        elif self.config.backend == StorageBackend.LOCAL:
             self.base_dir = self.config.local_path
             self.base_dir.mkdir(parents=True, exist_ok=True)
+
+    def _ensure_unity_catalog_volume(self):
+        """Creates the Unity Catalog Volume using the Databricks SDK if permitted."""
+        try:
+            from databricks.sdk import WorkspaceClient
+            from databricks.sdk.service.catalog import VolumeType
+            
+            w = WorkspaceClient()
+            parts = self.base_dir.parts
+            
+            # Ensure path follows /Volumes/<catalog>/<schema>/<volume>
+            if len(parts) >= 5 and parts[1] == 'Volumes':
+                catalog_name = parts[2]
+                schema_name = parts[3]
+                volume_name = parts[4]
+                
+                try:
+                    w.volumes.read(f"{catalog_name}.{schema_name}.{volume_name}")
+                except Exception:
+                    logger.info(f"Creating Unity Catalog Volume: {catalog_name}.{schema_name}.{volume_name}")
+                    w.volumes.create(
+                        catalog_name=catalog_name,
+                        schema_name=schema_name,
+                        name=volume_name,
+                        volume_type=VolumeType.MANAGED
+                    )
+                    
+            self.base_dir.mkdir(parents=True, exist_ok=True)
+        except ImportError:
+            logger.warning("databricks-sdk not installed. Skipping programmatic Unity Catalog Volume creation.")
+            self.base_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            logger.warning(f"Could not automatically provision Unity Catalog Volume (check permissions): {e}")
+            self.base_dir.mkdir(parents=True, exist_ok=True)            
 
     @property
     def s3(self):
