@@ -173,12 +173,14 @@ class StorageManager:
             if not self.config.s3_bucket:
                 return None
             try:
+                logger.info(f"Loading parquet file: s3://{self.config.s3_bucket}/{self.config.s3_prefix}{dataset_name}{PARQUET_SUFFIX}")
                 parquet_obj = self.s3.get_object(Bucket=self.config.s3_bucket, Key=f"{self.config.s3_prefix}{dataset_name}{PARQUET_SUFFIX}")
                 return parquet_obj['Body'].read()
             except Exception:
                 return None
         else:
             data_path = self.base_dir / f"{dataset_name}{PARQUET_SUFFIX}"
+            logger.info(f"Loading parquet file: {data_path}")
             return data_path.read_bytes() if data_path.exists() else None
 
 class FAADataService:
