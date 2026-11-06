@@ -122,8 +122,10 @@ class StorageManager:
     def save_archive(self, archive_name: str, archive_bytes: bytes) -> None:
         if self.config.backend == StorageBackend.S3:
             self.s3.put_object(Bucket=self.config.s3_bucket, Key=f"{self.config.s3_prefix}{archive_name}", Body=archive_bytes)
+            logger.info(f"Saving downloaded archive to S3 bucket {self.config.s3_bucket} {self.config.s3_prefix}{archive_name}")
         else:
             (self.base_dir / archive_name).write_bytes(archive_bytes)
+            logger.info(f"Saving downloaded archive to file {self.base_dir}/{archive_name}")
 
     def load_archive(self, archive_name: str) -> Optional[bytes]:
         if self.config.backend == StorageBackend.S3:

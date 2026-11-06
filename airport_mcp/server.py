@@ -73,6 +73,7 @@ async def pre_warm_caches():
         logger.info("Caches successfully pre-warmed.")
     except Exception as e:
         logger.critical(f"Fatal initialization failure: {e}")
+        raise
 
 if __name__ == "__main__":
     settings = Settings()
