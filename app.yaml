@@ -25,7 +25,7 @@ command:
   - "-c"
   - "export PYTHONPATH=/app/python/source_code:$PYTHONPATH && python -m airport_mcp.server"
 #env:
-#  - name: AIRPORT_MCP_STORAGE_BACKEND
-#    value: "databricks"
-#  - name: AIRPORT_MCP_DATABRICKS_PATH
-#    value: "/Volumes/users/igor_v_filippov/airport_mcp_data"
+  - name: AIRPORT_MCP_STORAGE_BACKEND
+    value: "databricks"
+  - name: AIRPORT_MCP_DATABRICKS_PATH
+    value: "/Volumes/users/igor_v_filippov/airport_mcp_data"
