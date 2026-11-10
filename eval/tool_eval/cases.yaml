@@ -1,0 +1,178 @@
+# Deterministic tool-level evaluation cases (no LLM involved).
+#
+# Each case calls one tool and checks the protocol-level result:
+#   expect_error: true          -> the call must return isError=True
+#   error_contains: "..."       -> substring that must appear in the error text
+#   equals:   {path: value}     -> exact value at a dotted path ("runways.0.length_ft")
+#   contains: {path: value}     -> value must be in the list at path; "*" fans out
+#   excludes: {path: value}     -> value must NOT be in the list at path
+#   count:    {path: n}         -> length of the list at path
+#
+# Ground truth verified against FAA NASR cycle 2026-10-29.
+
+cases:
+  # --- Identifier resolution -------------------------------------------------
+  - id: runways-faa-code
+    category: identifier resolution
+    tool: airport_get_runways
+    args: {airport_id: JFK}
+    equals: {airport.faa_id: JFK, airport.icao_id: KJFK, airport.name: JOHN F KENNEDY INTL}
+  - id: runways-icao-code
+    category: identifier resolution
+    tool: airport_get_runways
+    args: {airport_id: KJFK}
+    equals: {airport.faa_id: JFK}
+  - id: runways-non-k-icao
+    category: identifier resolution
+    tool: airport_get_runways
+    args: {airport_id: PANC}
+    equals: {airport.faa_id: ANC, total_runways: 3}
+  - id: runways-case-and-whitespace
+    category: identifier resolution
+    tool: airport_get_runways
+    args: {airport_id: " kjfk "}
+    equals: {airport.faa_id: JFK}
+  - id: runways-alphanumeric-faa-id
+    category: identifier resolution
+    tool: airport_get_runways
+    args: {airport_id: 1N7}
+    equals: {airport.name: BLAIRSTOWN, airport.icao_id: null}
+
+  # --- Runway data accuracy --------------------------------------------------
+  - id: jfk-longest-runway
+    category: data accuracy
+    tool: airport_get_runways
+    args: {airport_id: KJFK, min_length_ft: 14000}
+    count: {runways: 1}
+    equals: {runways.0.runway_id: 13R/31L, runways.0.length_ft: 14511, runways.0.surface: CONC}
+  - id: den-16000-surface
+    category: data accuracy
+    tool: airport_get_runways
+    args: {airport_id: KDEN, min_length_ft: 16000}
+    equals: {runways.0.runway_id: 16R/34L, runways.0.surface: CONC}
+  - id: sea-runway-ends
+    category: data accuracy
+    tool: airport_get_runways
+    args: {airport_id: KSEA}
+    count: {runways: 3, "runways.*.ends.*.end_id": 6}
+  - id: dtw-22r-approach-lights
+    category: data accuracy
+    tool: airport_get_runways
+    args: {airport_id: KDTW}
+    contains: {"runways.*.ends.*.end_id": 22R, "runways.*.ends.*.approach_lighting": MALSR}
+  - id: numeric-types
+    category: data accuracy
+    tool: airport_get_runways
+    args: {airport_id: KMIA}
+    type_number: [runways.0.ends.0.latitude, runways.0.ends.0.true_alignment_deg, airport.elevation_ft]
+
+  # --- Filters ---------------------------------------------------------------
+  - id: ord-min-length-filter
+    category: filters
+    tool: airport_get_runways
+    args: {airport_id: KORD, min_length_ft: 10000}
+    count: {runways: 4}
+    contains: {"runways.*.runway_id": 10L/28R}
+  - id: ewr-exclude-helipads
+    category: filters
+    tool: airport_get_runways
+    args: {airport_id: KEWR, include_helipads: false}
+    count: {runways: 3}
+    excludes: {"runways.*.runway_id": H1}
+    equals: {total_runways: 4}
+
+  # --- Airport search --------------------------------------------------------
+  - id: search-by-name-non-k
+    category: search
+    tool: airport_search
+    args: {query: Ted Stevens Anchorage International}
+    equals: {airports.0.faa_id: ANC, airports.0.icao_id: PANC}
+  - id: search-apostrophe
+    category: search
+    tool: airport_search
+    args: {query: "O'Hare"}
+    equals: {airports.0.faa_id: ORD}
+  - id: search-exact-code-first
+    category: search
+    tool: airport_search
+    args: {query: JFK}
+    equals: {airports.0.faa_id: JFK}
+  - id: search-city-state
+    category: search
+    tool: airport_search
+    args: {query: Springfield, state: IL}
+    equals: {airports.0.faa_id: SPI}
+  - id: search-no-match
+    category: search
+    tool: airport_search
+    args: {query: zzqqxx nonsense}
+    equals: {total_matches: 0}
+    count: {airports: 0}
+
+  # --- Proximity search ------------------------------------------------------
+  - id: nearby-diversion-den
+    category: proximity
+    tool: airport_find_nearby
+    args: {airport_id: KDEN, radius_nm: 50, min_runway_length_ft: 8000, paved_only: true, require_ils: true}
+    equals: {airports.0.faa_id: CFO, origin_airport.faa_id: DEN}
+    excludes: {"airports.*.faa_id": DEN}
+  - id: nearby-sfo-long-runway
+    category: proximity
+    tool: airport_find_nearby
+    args: {airport_id: KSFO, radius_nm: 40, min_runway_length_ft: 10000}
+    equals: {airports.0.faa_id: OAK}
+  - id: nearby-coordinates
+    category: proximity
+    tool: airport_find_nearby
+    args: {latitude: 39.86, longitude: -104.67, radius_nm: 30, min_runway_length_ft: 12000}
+    equals: {airports.0.faa_id: DEN, origin_airport: null}
+  - id: nearby-open-ocean
+    category: proximity
+    tool: airport_find_nearby
+    args: {latitude: 30.0, longitude: -140.0, radius_nm: 50}
+    equals: {total_found: 0}
+
+  # --- Error handling --------------------------------------------------------
+  - id: unknown-airport
+    category: error handling
+    tool: airport_get_runways
+    args: {airport_id: KZZQ}
+    expect_error: true
+    error_contains: airport_search
+  - id: nearby-unknown-origin
+    category: error handling
+    tool: airport_find_nearby
+    args: {airport_id: ZZZZ}
+    expect_error: true
+    error_contains: No US airport found
+  - id: nearby-missing-origin
+    category: error handling
+    tool: airport_find_nearby
+    args: {latitude: 40.0}
+    expect_error: true
+    error_contains: latitude and longitude
+  - id: empty-airport-id
+    category: input validation
+    tool: airport_get_runways
+    args: {airport_id: ""}
+    expect_error: true
+  - id: negative-min-length
+    category: input validation
+    tool: airport_get_runways
+    args: {airport_id: KJFK, min_length_ft: -5}
+    expect_error: true
+  - id: latitude-out-of-range
+    category: input validation
+    tool: airport_find_nearby
+    args: {latitude: 95, longitude: 0}
+    expect_error: true
+  - id: limit-too-large
+    category: input validation
+    tool: airport_search
+    args: {query: Chicago, limit: 500}
+    expect_error: true
+  - id: empty-search-query
+    category: input validation
+    tool: airport_search
+    args: {query: ""}
+    expect_error: true

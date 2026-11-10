@@ -1,212 +1,150 @@
-# Usage Instructions
+# Tool Reference
 
-## Available Tools
+Every tool:
 
-### 1. `airport_get_runways(icao_or_faa_id)`
-Query an airport by ICAO or FAA identifier to get runway structural information[cite: 1].
+- returns structured JSON that matches a published `outputSchema` (also sent as text content for older clients)
+- includes `data_cycle`, the effective date of the FAA NASR cycle that answered
+- is annotated `readOnlyHint`, `idempotentHint`, and `openWorldHint: false`
+- reports failures as MCP tool errors (`isError: true`). The message says what to do next.
 
-**Parameters:**
-- `icao_or_faa_id` (string): The 3-letter FAA identifier (e.g., 'JFK') or 4-letter ICAO identifier (e.g., 'KJFK') of the US airport[cite: 1].
-- `limit` (int, optional): Maximum number of runways to return (default: 20)[cite: 1].
-- `offset` (int, optional): Pagination offset (default: 0)[cite: 1].
-- `response_format` (string, optional): Format of the response, 'json' or 'markdown' (default: 'json')[cite: 1].
+Units: lengths and elevations are in **feet**, distances in **nautical miles**, and alignments and
+bearings in **true degrees**.
 
-**Returns:** 
-JSON object (or markdown string) containing:
-- `total_count`: Total number of runways[cite: 1]
-- `count`: Number of runways in current page[cite: 1]
-- `offset`: Current pagination offset[cite: 1]
-- `has_more`: Boolean indicating if more items exist[cite: 1]
-- `next_offset`: Offset for the next page if `has_more` is true[cite: 1]
-- `icao_id`: Airport identifier[cite: 1]
-- `name`: Airport name[cite: 1]
-- `city`: City location[cite: 1]
-- `state`: State code[cite: 1]
-- `country`: Country code[cite: 1]
-- `items`: Array of runway objects with:
-  - `rwy_id`: Runway identifier[cite: 1]
-  - `length_ft`: Runway length in feet[cite: 1]
-  - `width_ft`: Runway width in feet[cite: 1]
-  - `surface`: Surface type code[cite: 1]
-  - `condition`: Condition code[cite: 1]
-  - `lights`: Lighting code[cite: 1]
+---
 
-### 2. `airport_get_runway_ends(icao_or_faa_id)`
-Query an airport to get comprehensive runway end information (thresholds, elevations, alignments, glideslopes, etc.)[cite: 1].
+## `airport_search`
 
-**Parameters:**
-- `icao_or_faa_id` (string): The 3-letter FAA identifier (e.g., 'JFK') or 4-letter ICAO identifier (e.g., 'KJFK') of the target US airport[cite: 1].
-- `limit` (int, optional): Maximum number of runway ends to return (default: 20)[cite: 1].
-- `offset` (int, optional): Pagination offset (default: 0)[cite: 1].
-- `response_format` (string, optional): Format of the response, 'json' or 'markdown' (default: 'json')[cite: 1].
+Finds US airports by name, city, or code. Call it first when the user names an airport instead of
+giving its code.
 
-**Returns:** 
-JSON object (or markdown string) containing:
-- `total_count`: Total number of runway ends[cite: 1]
-- `count`: Number of runway ends in current page[cite: 1]
-- `offset`: Current pagination offset[cite: 1]
-- `has_more`: Boolean indicating if more items exist[cite: 1]
-- `next_offset`: Offset for the next page if `has_more` is true[cite: 1]
-- `icao_id`: Airport identifier[cite: 1]
-- `city`: City location[cite: 1]
-- `state`: State code[cite: 1]
-- `country`: Country code[cite: 1]
-- `items`: Array of runway end objects with:
-  - `rwy_id`: Parent Runway identifier[cite: 1]
-  - `rwy_end_id`: Runway End identifier[cite: 1]
-  - `latitude`: Runway end latitude[cite: 1]
-  - `longitude`: Runway end longitude[cite: 1]
-  - `elevation_ft`: Elevation in feet[cite: 1]
-  - `true_alignment`: True alignment[cite: 1]
-  - `ils_type`: ILS Type[cite: 1]
-  - `approach_light_system`: Approach light system code[cite: 1]
-  - `visual_glide_path_angle`: Glide path angle[cite: 1]
+| Parameter | Type | Default | Notes |
+|---|---|---|---|
+| `query` | string (2–100 chars) | required | Name, city or code, e.g. `Boston Logan`, `O'Hare`, `KDEN`. Understands FAA abbreviations (International → INTL, Regional → RGNL, …). |
+| `state` | string (2 letters) | – | Restrict to a state or territory, e.g. `TX`. |
+| `include_all_facility_types` | bool | `false` | Also return heliports, seaplane bases, gliderports, etc. |
+| `limit` | int 1–50 | `10` | |
 
-## Examples
+Results are ranked in this order:
 
-### Query JFK Airport Runways
+1. exact code match
+2. operational
+3. has an ICAO code
+4. longest runway
+
 ```json
+// airport_search {"query": "Anchorage International", "limit": 1}
 {
-  "tool": "airport_get_runways",
-  "parameters": {
-    "icao_or_faa_id": "JFK",
-    "response_format": "json"
-  }
+  "data_cycle": "2026-10-29",
+  "total_matches": 1,
+  "airports": [{
+    "faa_id": "ANC", "icao_id": "PANC", "name": "TED STEVENS ANCHORAGE INTL",
+    "city": "ANCHORAGE", "state": "AK", "country": "US",
+    "facility_type": "airport", "status": "operational", "public_use": true,
+    "elevation_ft": 151.4, "latitude": 61.17408472, "longitude": -149.9981375,
+    "runway_count": 3, "longest_runway_ft": 12400
+  }]
 }
-
 ```
 
-### Query Los Angeles International Airport Runway Ends
+No match is not an error. It returns `total_matches: 0`.
+
+---
+
+## `airport_get_runways`
+
+Returns every runway at one airport, with both runway ends nested, in a single call.
+
+| Parameter | Type | Default | Notes |
+|---|---|---|---|
+| `airport_id` | string | required | FAA (`JFK`, `1N7`) or ICAO (`KJFK`, `PANC`), case-insensitive. |
+| `min_length_ft` | int ≥ 0 | – | Only runways at least this long. |
+| `paved_only` | bool | `false` | Concrete, asphalt, partially paved or treated surfaces. |
+| `include_helipads` | bool | `true` | Helipads have IDs `H1`, `H2`, … |
+
+`total_runways` is always the count before filters are applied.
 
 ```json
+// airport_get_runways {"airport_id": "KJFK", "min_length_ft": 14000}
 {
-  "tool": "airport_get_runway_ends",
-  "parameters": {
-    "icao_or_faa_id": "KLAX",
-    "response_format": "json"
-  }
+  "data_cycle": "2026-10-29",
+  "airport": {"faa_id": "JFK", "icao_id": "KJFK", "name": "JOHN F KENNEDY INTL", "city": "NEW YORK",
+              "state": "NY", "elevation_ft": 13.0, "...": "..."},
+  "total_runways": 4,
+  "runways": [{
+    "runway_id": "13R/31L", "length_ft": 14511, "width_ft": 200, "surface": "CONC",
+    "is_paved": true, "is_helipad": false, "condition": "EXCELLENT", "edge_lighting": "HIGH", "has_ils": true,
+    "ends": [
+      {"end_id": "13R", "latitude": 40.64836133, "longitude": -73.81671472, "elevation_ft": 12.5,
+       "touchdown_zone_elevation_ft": 12.6, "true_alignment_deg": 121, "ils_type": null,
+       "approach_lighting": "RLLS", "visual_glide_slope_indicator": "P4L", "glide_path_angle_deg": 3.0,
+       "displaced_threshold_ft": 2044, "takeoff_run_available_ft": 14511, "landing_distance_available_ft": 12467},
+      {"end_id": "31L", "true_alignment_deg": 301, "ils_type": "ILS", "...": "..."}
+    ]
+  }]
 }
-
 ```
 
-## Sample Response (airport_get_runways)
+---
+
+## `airport_find_nearby`
+
+Finds operational airports within a radius whose runways meet your requirements, nearest first. Use it
+for diversion and alternate planning.
+
+| Parameter | Type | Default | Notes |
+|---|---|---|---|
+| `airport_id` | string | – | Origin airport. Give this **or** `latitude` + `longitude`. |
+| `latitude` / `longitude` | float | – | Origin coordinates in decimal degrees (west is negative). |
+| `radius_nm` | float (0, 500] | `50` | |
+| `min_runway_length_ft` | int ≥ 0 | – | |
+| `paved_only` | bool | `false` | |
+| `require_ils` | bool | `false` | ILS or LOC/GS approach on either end. |
+| `public_use_only` | bool | `true` | |
+| `limit` | int 1–50 | `10` | |
+
+A single runway must meet every runway criterion. Helipads never qualify, and the origin airport is
+excluded.
 
 ```json
+// airport_find_nearby {"airport_id": "KDEN", "radius_nm": 50, "min_runway_length_ft": 8000,
+//                      "paved_only": true, "require_ils": true, "limit": 2}
 {
-  "total_count": 4,
-  "count": 4,
-  "offset": 0,
-  "has_more": false,
-  "icao_id": "JFK",
-  "name": "JOHN F KENNEDY INTL",
-  "city": "NEW YORK",
-  "state": "NY",
-  "country": "US",
-  "items": [
-    {
-      "rwy_id": "04L/22R",
-      "length_ft": 12079.0,
-      "width_ft": 200.0,
-      "surface": "ASPH-CONC-G",
-      "condition": "GOOD",
-      "lights": "HIGH"
-    }
+  "data_cycle": "2026-10-29",
+  "origin_airport": {"faa_id": "DEN", "icao_id": "KDEN", "name": "DENVER INTL", "...": "..."},
+  "origin_latitude": 39.86166666, "origin_longitude": -104.67316666, "radius_nm": 50.0,
+  "total_found": 5,
+  "airports": [
+    {"faa_id": "CFO", "icao_id": "KCFO", "name": "COLORADO AIR AND SPACE PORT", "...": "...",
+     "distance_nm": 7.8, "bearing_deg": 127, "qualifying_runways": ["08/26", "17/35"],
+     "longest_qualifying_runway_ft": 8002},
+    {"faa_id": "APA", "icao_id": "KAPA", "name": "CENTENNIAL", "...": "...",
+     "distance_nm": 19.3, "bearing_deg": 205, "qualifying_runways": ["17L/35R"],
+     "longest_qualifying_runway_ft": 10001}
   ]
 }
-
 ```
 
-## Error Handling
+---
 
-If airport is not found:
+## Errors
 
-```json
-{
-  "isError": true,
-  "error": "Airport identifier 'XXX' not found."
-}
+| Situation | Response (`isError: true`) |
+|---|---|
+| Unknown airport | `No US airport found with identifier 'KZZQ'. Check the code, or call airport_search with the airport's name or city to find it.` |
+| Invalid argument (bad code format, negative length, latitude out of range, limit > 50, …) | Pydantic validation message naming the field. |
+| `airport_find_nearby` without an origin | `Provide an origin airport identifier, or both latitude and longitude.` |
+| FAA data not yet loadable (first start, offline, no cache) | `FAA airport data is temporarily unavailable (…). Retry in a few minutes.` |
 
-```
+Unexpected internal errors are masked (`mask_error_details`), so stack traces never reach the client.
 
-## CLI Testing
+## Code reference
 
-Test the server directly from command line:
-
-```bash
-# Run server in stdio mode
-python -m airport_mcp.server
-
-# Or use with stdio transport
-python -c "import asyncio; from airport_mcp.airport_get_runways import airport_get_runways; print(asyncio.run(airport_get_runways('JFK')))"
-
-```
-
-### Using with MCP Inspector
-
-```bash
-# Install MCP inspector
-npm install -g @modelcontextprotocol/inspector
-
-# Run inspector pointing to your server
-mcp-inspector python -m airport_mcp.server
-
-```
-
-## MCP Client Configuration
-
-### Opencode Configuration
-
-Add to `mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "airport": {
-      "command": "python",
-      "args": ["-m", "airport_mcp.server"],
-      "cwd": "/path/to/hackathon"
-    }
-  }
-}
-
-```
-
-### HTTP Transport Configuration
-
-For HTTP-based MCP clients, you can run the server with SSE:
-
-```bash
-# Run with HTTP transport (requires fastmcp[ssestream])
-MCP_TRANSPORT=streamable-http python -m airport_mcp.server
-
-```
-
-Configure in opencode `.opencode/mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "airport": {
-      "url": "http://localhost:8000/sse"
-    }
-  }
-}
-
-```
-
-### Claude Desktop Configuration
-
-Add to `claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "airport": {
-      "command": "python",
-      "args": ["-m", "airport_mcp.server"],
-      "cwd": "/path/to/hackathon"
-    }
-  }
-}
-
-```
+| Field | Values |
+|---|---|
+| `surface` | `CONC` concrete, `ASPH` asphalt, `PEM` partially paved, `TURF`, `DIRT`, `GRVL` gravel, `WATER`, `MATS`, … Compound values such as `ASPH-CONC` are possible. |
+| `condition` | `EXCELLENT`, `GOOD`, `FAIR`, `POOR`, `FAILED` |
+| `edge_lighting` | `HIGH`, `MED`, `LOW`, `NSTD` (non-standard), `PERI` (perimeter), `FLD` (flood), `STRB` (strobe) |
+| `approach_lighting` | e.g. `ALSF2`, `MALSR`, `MALSF`, `SSALR`, `ODALS`, `RLLS` |
+| `visual_glide_slope_indicator` | e.g. `P4L` 4-box PAPI left, `P2R` 2-box PAPI right, `V4L` 4-box VASI left |
+| `facility_type` | `airport`, `heliport`, `seaplane_base`, `ultralight`, `gliderport`, `balloonport` |
+| `status` | `operational`, `closed_indefinitely`, `closed_permanently` |

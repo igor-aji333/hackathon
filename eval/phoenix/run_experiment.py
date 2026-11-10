@@ -5,7 +5,7 @@ from phoenix.client import Client
 import yaml
 
 from agent import AirportAgent
-from judges import check_answer_scope, match_expected_response
+from judges import EVALUATORS
 
 REGISTRY_PATH = Path(__file__).parent / "datasets.yaml"
 
@@ -16,7 +16,7 @@ def main():
     )
     parser.add_argument(
         "--dataset-name",
-        default="airport-eval-xml",
+        default="airport-eval",
         help="Dataset name in datasets.yaml",
     )
     parser.add_argument(
@@ -35,7 +35,6 @@ def main():
         )
 
     client = Client()
-    # Correct parameter is `dataset=`
     dataset = client.datasets.get_dataset(dataset=args.dataset_name)
 
     agent = AirportAgent(
@@ -52,13 +51,13 @@ def main():
     experiment = client.experiments.run_experiment(
         dataset=dataset,
         task=task,
-        evaluators=[match_expected_response, check_answer_scope],
+        evaluators=EVALUATORS,
         experiment_name=f"airport-{args.system_prompt_version}",
+        experiment_metadata={"system_prompt_version": args.system_prompt_version},
     )
 
-    print(f"Experiment completed: {experiment}")
+    print(f"Experiment ID: {experiment['experiment_id']}")
 
 
 if __name__ == "__main__":
     main()
-    

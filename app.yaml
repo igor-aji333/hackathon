@@ -1,25 +1,13 @@
-# Databricks Apps deployment configuration for an MCP server.
+# Databricks Apps configuration.
 # https://docs.databricks.com/aws/en/dev-tools/databricks-apps/app-runtime
 #
-# Deploy with the kit script (which syncs this repo to your workspace and runs
-# `databricks apps deploy`):
-#   bash deploy/databricks/deploy-databricks-app.sh
+# Databricks injects DATABRICKS_APP_PORT; when it is set, the server serves
+# streamable HTTP on 0.0.0.0:<port> with endpoints:
+#   /mcp     MCP (streamable HTTP)
+#   /health  readiness: {"status": "ready" | "initializing", "data_cycle": ...}
 #
-# The MCP endpoint is available at:
-#   https://<app-url>/mcp    (Streamable HTTP, stateless)
-#   https://<app-url>/health
-#
-# Databricks automatically injects at runtime:
-#   DATABRICKS_APP_PORT      (defaults to 8000) — app.py serves HTTP on this
-#   DATABRICKS_HOST          workspace URL
-#   DATABRICKS_CLIENT_ID     service principal client ID
-#   DATABRICKS_CLIENT_SECRET OAuth secret
-#
-# The `command` runs the server from the synced source. We put the package's
-# src/ on PYTHONPATH and launch it as a module; app.py sees DATABRICKS_APP_PORT
-# and automatically serves streamable-HTTP on that port with /mcp and /health.
-#
-# If you renamed the `example_server` package, update the module path below.
+# The synced source lives in /app/python/source_code; put it on PYTHONPATH so
+# the airport_mcp package is importable without installing it.
 command:
   - "/bin/sh"
   - "-c"

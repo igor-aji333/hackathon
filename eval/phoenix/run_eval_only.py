@@ -1,29 +1,31 @@
-# eval/phoenix/run_eval_only.py
-import os
+"""Re-run the evaluators on an already-recorded Phoenix experiment.
+
+Usage: python run_eval_only.py --experiment-id <ID> [--phoenix-url URL]
+"""
+
+import argparse
 import sys
 from pathlib import Path
 
-current_dir = Path(__file__).resolve().parent
-sys.path.insert(0, str(current_dir))
-sys.path.insert(0, str(current_dir.parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from phoenix.client import Client
 from phoenix.client.experiments import evaluate_experiment
-from judges import check_answer_scope, match_expected_response
+
+from judges import EVALUATORS
 
 
-def main():
-    client = Client()
-    experiment_id = "RXhwZXJpbWVudDox"
-    print(f"Fetching experiment {experiment_id}...")
-    experiment = client.experiments.get_experiment(experiment_id=experiment_id)
-    print("Running evaluators on stored experiment task runs...")
-    evaluate_experiment(
-        experiment=experiment,
-        evaluators=[match_expected_response, check_answer_scope],
-        client=client,
-    )
-    print("Done!")
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--experiment-id", required=True, help="Phoenix experiment ID to re-score")
+    parser.add_argument("--phoenix-url", default="http://localhost:6006")
+    args = parser.parse_args()
+
+    client = Client(base_url=args.phoenix_url)
+    experiment = client.experiments.get_experiment(experiment_id=args.experiment_id)
+    print(f"Re-scoring experiment {args.experiment_id}...")
+    evaluate_experiment(experiment=experiment, evaluators=EVALUATORS, client=client)
+    print("Done.")
 
 
 if __name__ == "__main__":

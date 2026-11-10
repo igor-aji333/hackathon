@@ -1,40 +1,41 @@
-# Airport MCP Evaluation Results
+# Airport MCP – Agent Evaluation Results
 
-*Generated on 2026-11-03 18:24:13 UTC*
+*Generated 2026-11-10 21:44 UTC by `eval/phoenix/generate_results_md.py`.*
 
-## Executive Summary
-This evaluation benchmarks the **Airport MCP Server** using an automated LLM-as-judge evaluation harness (Arize Phoenix). The agent was tested across multi-hop reasoning questions from `evaluation.xml` comparing two prompt configurations:
+Agent model: `muse-glimmer:latest` · Judge model: `gemma4:31b` (different models to avoid self-preference bias).
 
-- **Prompt v1**: Baseline conversational FAA airport specialist.
-- **Prompt v2**: Strict output constraint enforcing atomic values without conversational filler.
+An LLM agent (LangChain + in-memory MCP adapter) answers every question in
+`eval/evaluation.xml` using only the server's tools. Each answer is scored by:
 
-### Version 1 (Baseline) Summary
-- **Experiment ID**: `RXhwZXJpbWVudDox`
-- **Total Evaluated Cases**: 10
-- **Correctness Accuracy**: 100.0% (10/10)
-- **Tool-Scope Relevance**: 100.0% (10/10)
+- **Exact match** (headline): normalized response equals the ground truth.
+- **Contains answer**: ground truth appears as a whole token (separates formatting from reasoning failures).
+- **Scope** (LLM judge): agent stayed within FAA airport-infrastructure data and did not invent out-of-scope facts.
 
-### Version 2 (Strict Output) Summary
-- **Experiment ID**: `RXhwZXJpbWVudDoy`
-- **Total Evaluated Cases**: 10
-- **Correctness Accuracy**: 100.0% (10/10)
-- **Tool-Scope Relevance**: 100.0% (10/10)
+## Summary
 
-## Detailed Benchmark Breakdown
-| # | Question | Ground Truth | Agent Output | Correctness | Scope |
-|---|---|---|---|:---:|:---:|
-| 1 | Find the runway at KJFK with surface type CONC that has the longest length in feet. What is the length? Provide only the number. | `14511` | `14511` | correct | within_scope |
-| 2 | Compare all runway ends at Los Angeles International (KLAX). Which runway end ID has the highest recorded elevation? Provide just the runway end ID. | `07R` | `07R` | correct | within_scope |
-| 3 | At Seattle-Tacoma (KSEA), how many total runway ends exist across all active runways? Provide only the number. | `6` | `6` | correct | within_scope |
-| 4 | At Chicago O'Hare (KORD), how many runways have a length of 10000 feet or greater? Provide only the number. | `4` | `4` | correct | within_scope |
-| 5 | Identify the runway at Denver International (KDEN) that has a length of 16000 feet. What is its surface type code? Provide only the code. | `CONC` | `CONC` | correct | within_scope |
-| 6 | Compare all runway ends at San Francisco International (KSFO). Which runway end ID has the highest recorded elevation? Provide only the runway end ID. | `28R` | `28R` | correct | within_scope |
-| 7 | Find the runway end at Miami International (KMIA) with the lowest recorded true alignment value. What is the runway end ID? | `08L` | `Miami International KMIA has 8 runway ends in the current NASR cycle.  The true_alignment values returned for the airport are:  * 08L – 08L/26R – true_alignment 87 * 26R – 08L/26R – true_alignment 267 * 08R – 08R/26L – true_alignment 87 * 26L – 08R/26L – true_alignment 267 * 09  – 09/27      – true_alignment 87 * 27  – 09/27      – true_alignment 267 * 12  – 12/30      – true_alignment 119 * 30  – 12/30      – true_alignment 299  The minimum true alignment recorded for KMIA is 87°.  That minimum is shared by three runway ends:  * rwy_end_id **08L** on rwy_id 08L/26R * rwy_end_id **08R** on rwy_id 08R/26L * rwy_end_id **09**  on rwy_id 09/27  The first occurrence in the returned set is 08L, true_alignment = 87°, lat 25.80289777 / lon -80.30154188, elevation 8.9 ft, ILS type LOC/DME.` | correct | within_scope |
-| 8 | Query Boston Logan (KBOS) for its runways. How many runways have a physical width of 150 feet? Provide only the number. | `4` | `4` | correct | within_scope |
-| 9 | At Newark Liberty International (KEWR), identify the shortest paved airplane runway (excluding helipads). What is its runway ID? | `11/29` | `Newark Liberty International KEWR has 3 paved airplane runways + 1 helipad in the NASR cycle:  * **04L/22R** – 11,000 ft × 150 ft – ASPH-CONC * **04R/22L** – 9,999 ft × 150 ft – ASPH * **11/29** – 6,725 ft × 150 ft – ASPH * **H1** – 54 ft × 54 ft – ASPH – helipad  Excluding helipads, the paved airplane runway with the smallest length is  **Runway 11/29, 6,725 ft long**  The 54 ft H1 is the shortest paved surface at the airport but it is a helipad and is excluded per your request.` | correct | within_scope |
-| 10 | Locate runway end 22R at Detroit Metro (KDTW). What is the specified approach light system code? | `MALSR` | `Detroit Metropolitan Wayne County Airport – KDTW / DTW  Runway 04L/22R – Runway end 22R  * rwy_id: 04L/22R * rwy_end_id: 22R * latitude: 42.22624502 * longitude: -83.36628097 * elevation_ft: 642.1 * true_alignment: 209° * ils_type: ILS/DME * visual_glide_path_angle: 3.0° * approach_light_system: **MALSR**  The specified approach lighting for the 22R threshold is MALSR – Medium Intensity Approach Lighting System with Runway Alignment Indicator Lights.` | correct | within_scope |
+| Prompt | Experiment ID | Exact match | Contains answer | Scope | Task errors | Median latency |
+|---|---|:---:|:---:|:---:|:---:|:---:|
+| v1 | `RXhwZXJpbWVudDoz` | 94% (16/17) | 100% (17/17) | 100% (17/17) | 0 | 30.2s |
+| v2 | `RXhwZXJpbWVudDo0` | 100% (17/17) | 100% (17/17) | 100% (17/17) | 0 | 28.4s |
 
-## Key Takeaways
-1. **Formatting Precision**: Enforcing single-value output constraints (`system_prompt_v2`) avoids conversational framing that can trigger false negatives in exact-match string evaluators.
-2. **Domain Boundary Control**: Tool calls remained within scope boundaries, with the agent accurately selecting between `airport_get_runways` (for physical dimensions) and `airport_get_runway_ends` (for threshold elevations and glideslopes).
-3. **In-Memory MCP Execution**: Running the FastMCP adapter directly in-memory eliminated transport deadlocks, ensuring stable evaluation execution.
+## Per-question results
+
+| # | Question | Expected | v1 output | v1 exact | v2 output | v2 exact |
+|---|---|---|---|---|---|---|
+| 1 | Find the runway at KJFK with surface type CONC that has the longest length in feet. What is the length? Provide only th… | `14511` | `14511` | ✅ | `14511` | ✅ |
+| 2 | Compare all runway ends at Los Angeles International (KLAX). Which runway end ID has the highest recorded elevation? Pr… | `07R` | `07R` | ✅ | `07R` | ✅ |
+| 3 | At Seattle-Tacoma (KSEA), how many total runway ends exist across all active runways? Provide only the number. | `6` | `6` | ✅ | `6` | ✅ |
+| 4 | At Chicago O'Hare (KORD), how many runways have a length of 10000 feet or greater? Provide only the number. | `4` | `4` | ✅ | `4` | ✅ |
+| 5 | Identify the runway at Denver International (KDEN) that has a length of 16000 feet. What is its surface type code? Prov… | `CONC` | `CONC` | ✅ | `CONC` | ✅ |
+| 6 | Compare all runway ends at San Francisco International (KSFO). Which runway end ID has the highest recorded elevation? … | `28R` | `28R` | ✅ | `28R` | ✅ |
+| 7 | Find the runway end at Miami International (KMIA) with the highest true alignment value. Provide only the runway end ID. | `30` | `30` | ✅ | `30` | ✅ |
+| 8 | Query Boston Logan (KBOS) for its runways. How many runways have a physical width of 150 feet? Provide only the number. | `4` | `4` | ✅ | `4` | ✅ |
+| 9 | At Newark Liberty International (KEWR), identify the shortest paved airplane runway (excluding helipads). Provide only … | `11/29` | `11/29` | ✅ | `11/29` | ✅ |
+| 10 | Locate runway end 22R at Detroit Metro (KDTW). What is the specified approach light system code? Provide only the code. | `MALSR` | `MALSR` | ✅ | `MALSR` | ✅ |
+| 11 | What is the ICAO code of Ted Stevens Anchorage International Airport? Provide only the code. | `PANC` | `PANC` | ✅ | `PANC` | ✅ |
+| 12 | How many runways does PANC have? Provide only the number. | `3` | `3` | ✅ | `3` | ✅ |
+| 13 | What is the FAA identifier of Hartsfield-Jackson Atlanta International Airport? Provide only the identifier. | `ATL` | `ATL` | ✅ | `ATL` | ✅ |
+| 14 | A flight near Denver International (KDEN) needs to divert. What is the FAA identifier of the nearest public-use airport… | `CFO` | `CFO` | ✅ | `CFO` | ✅ |
+| 15 | Within 40 nautical miles of San Francisco International (KSFO), which other airport is the closest one with a runway at… | `OAK` | `OAK` | ✅ | `OAK` | ✅ |
+| 16 | How long is the longest runway at airport KZZQ? If the airport does not exist in the FAA data, answer NOT_FOUND. | `NOT_FOUND` | `NOT_FOUND The FAA NASR data cycle 2026-10-29 contains no US airport with identi…` | ❌ | `NOT_FOUND` | ✅ |
+| 17 | What is the current weather (METAR) at KJFK? If your tools cannot provide it, answer UNAVAILABLE. | `UNAVAILABLE` | `UNAVAILABLE` | ✅ | `UNAVAILABLE` | ✅ |

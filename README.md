@@ -1,239 +1,203 @@
 # Airport MCP Server
 
-A FastMCP server that provides comprehensive query access to FAA airport runway and runway end data. This server downloads, caches, and parses the 28-day FAA NASR (National Airspace System Resource) cycle data, exposing it to MCP clients for AI agents to query.
+An MCP server that gives AI agents reliable, structured access to **official FAA airport and runway data**
+for every US airport, heliport and seaplane base. It downloads the FAA NASR (National Airspace System
+Resource) dataset, keeps it current on the FAA's 28-day publication cycle, and exposes three
+goal-oriented tools:
 
-## Features
-- **Runway Information:** Retrieve length, width, surface, condition, and coordinates for runways (`airport_get_runways`).
-- **Runway Ends Information:** Retrieve elevations, thresholds, alignments, and glide slopes for runway ends (`airport_get_runway_ends`).
-- **Smart Caching:** Data is automatically downloaded, converted to Parquet for speed, and cached for 28 days based on FAA cycle schedules.
-- **Multiple Storage Backends:** Supports Local Disk and AWS S3.
-- **MCP Transports:** Supports Stdio, Server-Sent Events (SSE), and Streamable HTTP.
+| Tool | Agent goal it serves |
+|---|---|
+| `airport_search` | "Which airport is *Ted Stevens Anchorage*?" – resolve names, cities or partial codes to identifiers. |
+| `airport_get_runways` | "Can a 9,000 ft paved runway at KDEN take us? Which end has an ILS?" – full runway and runway-end picture for one airport, with optional filters. |
+| `airport_find_nearby` | "Nearest public airport to KDEN with an 8,000 ft paved ILS runway?" – diversion / alternate planning by distance and runway capability. |
 
-## Prerequisites
-- Python 3.13 or higher
-- Git
+All tools return **typed, schema-validated structured output** (Pydantic models published as MCP
+`outputSchema`), are annotated read-only/idempotent, and report problems as MCP tool errors
+(`isError: true`) with a message that tells the agent what to do next.
+
+See [USAGE.md](USAGE.md) for the full tool reference and examples.
+
+## Design
+
+### Why these tools
+
+The FAA publishes airports, runways and runway ends as three separate CSV tables. Exposing one tool
+per table would force the agent to make several calls and join the results itself. Instead, each tool
+maps to a question an agent is actually asked:
+
+- **Search** exists because users name airports ("O'Hare", "Anchorage") far more often than they
+  quote codes. FAA abbreviations (INTL, RGNL, MUNI, …) and punctuation are normalized, so
+  "Ted Stevens Anchorage International" finds `TED STEVENS ANCHORAGE INTL`.
+- **Get runways** returns each runway *with both of its ends nested*, so a single call answers
+  questions about lengths, surfaces, ILS, approach lights and elevations. Server-side filters
+  (`min_length_ft`, `paved_only`, `include_helipads`) keep the payload focused.
+- **Find nearby** performs a vectorized great-circle search over all ~19k facilities, joined with
+  runway capability. This is impossible to do efficiently through a per-airport API.
+
+Identifiers are forgiving: FAA codes (`JFK`, `1N7`), US ICAO codes (`KJFK`), and non-`K` ICAO codes
+(`PANC`, `PHNL`, `TJSJ`) all resolve, case-insensitively and with whitespace trimmed.
+
+### Module layout
+
+```
+airport_mcp/
+├── server.py      # FastMCP app: instructions, pre-warm lifespan, /health, transport selection
+├── tools.py       # Agent-facing tool definitions: names, descriptions, validated parameters, error mapping
+├── models.py      # Pydantic output models (become each tool's outputSchema)
+├── queries.py     # Pure query logic over an in-memory dataset (search ranking, filters, haversine)
+├── dataset.py     # Immutable, indexed snapshot of one NASR cycle + identifier resolution
+├── repository.py  # Data lifecycle: cycle detection, download, Parquet cache, refresh, stale fallback
+├── nasr.py        # FAA NASR cycle calendar, download URL, CSV extraction
+├── storage.py     # Artifact store protocol with local-disk and S3 implementations
+└── config.py      # Typed settings from environment variables / .env
+```
+
+Each layer depends only on the ones below it. `queries.py` has no I/O, so it can be unit-tested
+against small fixture tables, and the repository takes its storage and downloader as injected
+dependencies.
+
+### Reliability
+
+- **Cycle-consistent caching.** Cache files are keyed by cycle (`nasr_2026-10-29_APT_RWY.parquet`),
+  so the airport, runway and runway-end tables always come from the same cycle.
+- **Non-blocking.** Download parsing, Parquet I/O and queries run in worker threads (`asyncio.to_thread`),
+  so the event loop keeps serving other requests.
+- **Single-flight loading.** An `asyncio.Lock` with a double-check ensures concurrent first calls trigger
+  one download, not fifty.
+- **Graceful degradation.** If a new cycle cannot be downloaded, the server keeps serving the
+  previous cycle and retries after 15 minutes. On a cold start without network access, it falls back
+  to any of the last six cached cycles. Every response carries `data_cycle`, so agents can see which
+  data cycle answered.
+- **Pre-warm.** Data loads when the server starts, so the first tool call is fast. If pre-warming
+  fails, the tools retry lazily.
 
 ## Installation
 
-1. **Clone the repository:**
-   ```bash
-   git clone <repo-url>
-   cd airport-mcp
-
-```
-
-2. **Set up virtual environment:**
-```bash
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-```
-
-
-3. **Install dependencies:**
-```bash
-pip install -r requirements.txt
-# Or using uv: uv pip install -r requirements.txt
-
-```
-
-
-
-## Running the Server
-
-Run the server in Stdio mode (default for most MCP clients):
+Requires Python 3.11+.
 
 ```bash
-python -m airport_mcp.server
-
+uv sync                       # or: pip install -e .
+uv sync --extra s3            # optional: S3 cache backend (boto3)
 ```
 
-Run with HTTP/SSE transport:
+## Running
 
 ```bash
-MCP_TRANSPORT=streamable-http PORT=8080 python -m airport_mcp.server
+uv run airport-mcp                                    # stdio (default; for desktop MCP clients)
+MCP_TRANSPORT=streamable-http uv run airport-mcp      # http://127.0.0.1:8000/mcp  (+ /health)
 ```
 
-## Storage Backends
+The first start downloads the ~9 MB FAA archive and takes a few seconds. Later starts load the
+Parquet cache in about 0.5 s.
 
-The server supports multiple storage backends for caching the CSV/Parquet data:
+### Configuration
 
-### Local Filesystem (default)
+| Variable | Default | Purpose |
+|---|---|---|
+| `AIRPORT_MCP_STORAGE_BACKEND` | `local` | `local` or `s3` |
+| `AIRPORT_MCP_DATA_DIR` | `~/.airport_mcp_data` | Local cache directory |
+| `AIRPORT_MCP_S3_BUCKET` | – | Required when backend is `s3` |
+| `AIRPORT_MCP_S3_KEY` | `airport_mcp/` | S3 key prefix |
+| `MCP_TRANSPORT` | `stdio` | `stdio`, `streamable-http` or `sse` |
+| `MCP_HOST` / `MCP_PORT` | `127.0.0.1` / `8000` | Bind address for HTTP transports |
+| `DATABRICKS_APP_PORT` or `PORT` | – | If set (by a hosting platform), serve streamable HTTP on `0.0.0.0:<port>` |
 
-Data is stored in `~/.airport_mcp_data/`:
-
-* `<dataset>.parquet` - Cached dataset
-* `nasr_cycle_timestamp.txt` - Last cycle timestamp
-
-### AWS S3
-
-Set the following environment variables:
-
-```bash
-export AIRPORT_MCP_STORAGE_BACKEND=s3
-export AIRPORT_MCP_S3_BUCKET=your-bucket-name
-export AIRPORT_MCP_S3_KEY="airport_mcp/"  # Optional prefix
-
-```
-
-## Available Tools
-
-### 1. `airport_get_runways(icao_or_faa_id)`
-
-Query an airport by ICAO or FAA identifier to get runway structural information.
-
-**Parameters:**
-
-* `icao_or_faa_id` (string): The airport identifier (e.g., 'JFK', 'KLAX')
-
-**Returns (JSON):**
-Provides array of runways with `rwy_id`, `length_ft`, `width_ft`, `surface`, `condition`, and `lights`.
-
-### 2. `airport_get_runway_ends(icao_or_faa_id)`
-
-Query an airport to get comprehensive runway end data (thresholds, elevations, alignments, glideslopes).
-
-**Parameters:**
-
-* `icao_or_faa_id` (string): The airport identifier (e.g., 'JFK', 'KLAX')
-
-**Returns (JSON):**
-Provides array of runway ends with `rwy_end_id`, `latitude`, `longitude`, `elevation_ft`, `true_alignment`, `ils_type`, and `visual_glide_path_angle`.
-
-## MCP Client Configuration
-
-### Claude Desktop Configuration
-
-Add to `claude_desktop_config.json`:
+### Client configuration
 
 ```json
 {
   "mcpServers": {
     "airport": {
-      "command": "python",
-      "args": ["-m", "airport_mcp.server"],
-      "cwd": "/path/to/airport-mcp"
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/hackathon", "airport-mcp"]
     }
   }
 }
-
 ```
 
-### Opencode Configuration
+To inspect the server interactively: `npx @modelcontextprotocol/inspector uv run airport-mcp`.
 
-Add to `.opencode/mcp.json` using SSE:
+## Testing and evaluation
 
-```json
-{
-  "mcpServers": {
-    "airport": {
-      "url": "http://localhost:8000/sse"
-    }
-  }
-}
+The server is checked at three levels. Each level has its own command and committed results.
 
-```
+| Level | Result |
+|---|---|
+| Unit and integration tests | 31/31 pass, offline |
+| Deterministic tool eval (real FAA data) | 29/29 cases pass; 29/29 deterministic; warm p50 5 ms, p95 15 ms; cold start 0.5 s; 50/50 concurrent calls succeed |
+| Agent eval (17 questions, local `muse-glimmer` agent, `gemma4:31b` judge) | Prompt v1: 94% exact match / 100% contains answer. Prompt v2: 100% exact match. Both 100% in scope. |
 
-## Testing
+### 1. Unit and integration tests – `tests/`
 
-**CLI Testing:**
-
-```bash
-python -c "import asyncio; from airport_mcp.airport_get_runways import airport_get_runways; print(asyncio.run(airport_get_runways('DCA')))"
-python -c "import asyncio; from airport_mcp.airport_get_runway_ends import airport_get_runway_ends; print(asyncio.run(airport_get_runway_ends('DCA', response_format='markdown')))"
-
-```
-
-**MCP Inspector:**
-
-```bash
-npm install -g @modelcontextprotocol/inspector
-mcp-inspector python -m airport_mcp.server
-
-```
-
-**Run Unit Tests:**
-
-```bash
-uv pip install -e ".[dev]"
-pytest tests/
-
-```
-
-## Evaluation (LLM-as-Judge)
-
-This project includes an automated LLM-as-judge evaluation harness using [Arize Phoenix](https://docs.arize.com/phoenix) to measure how effectively an AI agent can answer realistic questions using the server's tools. The evaluation framework is located in `eval/phoenix/`.
-
-### Prerequisites
-
-Ensure you have installed the development dependencies and configured your evaluation models:
-
-1. **Install Dev Dependencies:**
 ```bash
 uv sync --group dev
-
+uv run pytest
 ```
 
+These tests run against small fixture tables and a fake downloader, so they need no network access.
+They cover:
 
-2. **Configure Environment:**
-Create a `.env` file at the repository root with your model gateway credentials and model selections (it is recommended to use different models for the agent and the judge to avoid self-preference bias):
+- NASR cycle math and URL building.
+- Repository behaviour: cache hit and miss, one download under 10 concurrent callers, refresh
+  failure keeping the stale cycle, cold-start fallback, and cycle-consistent cache keys.
+- Every tool through a real MCP client: output schemas, annotations, `isError` on bad input,
+  ICAO/FAA resolution, filters, and search ranking.
 
-
-```env
-USAI_API_KEY=your_api_key
-USAI_BASE_URL=https://your-gateway-url/api/v1
-AGENT_MODEL=gpt-4o
-JUDGE_MODEL=claude-3-5-sonnet-20241022
-
-```
-
-
-3. **Apply Phoenix ORM Patch:**
-To bypass a known SQLAlchemy `MissingGreenlet` async bug during evaluation, run this monkey patch to replace the failing lazy-load ORM lookups in your virtual environment:
-```bash
-python -c "
-import glob
-for path in glob.glob('.venv/**/phoenix/server/api/routers/v1/experiments.py', recursive=True):
-    with open(path, 'r') as f: data = f.read()
-    data = data.replace('created_at=experiment.created_at,', 'created_at=__import__(\'datetime\').datetime.now(__import__(\'datetime\').timezone.utc),')
-    data = data.replace('updated_at=experiment.updated_at,', 'updated_at=__import__(\'datetime\').datetime.now(__import__(\'datetime\').timezone.utc),')
-    with open(path, 'w') as f: f.write(data)
-    print(f'Successfully patched Phoenix ORM bug in: {path}')
-"
-
-```
-
-
-
-### Execution Workflow
-
-Run all evaluation commands from within the `eval/phoenix/` directory.
-
-**1. Start the Phoenix Server**
-Launch the local Phoenix server to collect telemetry and host the UI (runs on port 6006):
+### 2. Deterministic tool evaluation – `eval/tool_eval/` → [eval/TOOL_EVAL_RESULTS.md](eval/TOOL_EVAL_RESULTS.md)
 
 ```bash
-uv run arize-phoenix serve
-
+uv run python eval/tool_eval/run_tool_eval.py
 ```
 
-**2. Register the Dataset**
-Upload the benchmark dataset (`airport-eval-xml`) to your Phoenix instance. You can validate it first with a dry run:
+This evaluation calls the live tools on real FAA data with 29 declarative cases ([`cases.yaml`](eval/tool_eval/cases.yaml))
+in seven categories:
+
+- identifier resolution
+- data accuracy
+- filters
+- search
+- proximity
+- error handling
+- input validation
+
+Each case runs five times to check that the output is identical every time and to measure latency.
+The harness also measures cold-start time and fires 50 mixed concurrent calls. It needs no LLM, so
+the results are reproducible.
+
+### 3. Agent evaluation (LLM-as-judge) – `eval/phoenix/` → [eval/RESULTS.md](eval/RESULTS.md)
+
+A LangChain agent connected to the server in-memory answers the 17 questions in
+[`eval/evaluation.xml`](eval/evaluation.xml). The questions cover:
+
+- multi-step runway and runway-end reasoning
+- name-to-code resolution
+- non-K ICAO codes
+- diversion search
+- a non-existent airport
+- an out-of-scope weather request
+
+Every answer was verified against the data. Two prompt versions are compared, and each answer gets
+three scores, all recorded in [Arize Phoenix](https://docs.arize.com/phoenix):
+
+- **exact match** (headline; normalized, unit- and format-tolerant)
+- **contains answer** (separates formatting failures from reasoning failures)
+- **scope** (an LLM judge, using a different model from the agent)
 
 ```bash
+uv sync --group eval
+# .env: USAI_BASE_URL, USAI_API_KEY, AGENT_MODEL, JUDGE_MODEL (any OpenAI-compatible endpoint, e.g. Ollama)
+uv run phoenix serve &                                    # UI at http://localhost:6006
 cd eval/phoenix
-uv run create_dataset.py --dataset-name airport-eval-xml --dry-run
-uv run create_dataset.py --dataset-name airport-eval-xml
-
+uv run python create_dataset.py --dataset-name airport-eval
+uv run python run_experiment.py --system-prompt-version v1   # prints the experiment ID
+uv run python run_experiment.py --system-prompt-version v2
+uv run python generate_results_md.py --experiment v1=<ID> --experiment v2=<ID>
+uv run python run_eval_only.py --experiment-id <ID>          # re-score a stored experiment
 ```
 
-**3. Run the Experiment**
-Execute the evaluation. This spins up a LangChain agent connected to the MCP server, feeds it the dataset, and scores the responses for correctness and tool-scope relevance using the LLM-as-judge:
+## Scope and limitations
 
-```bash
-uv run run_experiment.py --dataset-name airport-eval-xml --system-prompt-version v2
-
-```
-
-**4. Review Results**
-Navigate to [http://localhost:6006](http://localhost:6006) in your browser. Under the **Experiments** tab, you can inspect individual traces, view the exact tool-call arguments generated by the agent, and review the logic behind the judges' verdicts. Compare with the  saved results in eval/RESULTS.md in the git repo.
+- Static US airport infrastructure only. There is no weather, NOTAMs, frequencies, schedules or
+  non-US airports. The server instructions tell agents this.
+- Data is only as current as the latest FAA cycle. Every response includes the `data_cycle`
+  effective date.

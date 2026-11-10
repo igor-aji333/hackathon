@@ -1,328 +1,169 @@
-"""
-Extracts Arize Phoenix experiment metrics and writes eval/RESULTS.md with proper alignment.
+"""Write eval/RESULTS.md from recorded Phoenix experiments.
+
+Scores are taken verbatim from the evaluators stored in Phoenix (no
+re-scoring here), and every question is matched to its dataset example by ID.
+
+Usage:
+    python generate_results_md.py --experiment v1=<ID> --experiment v2=<ID>
 """
 
 import argparse
+import os
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-import xml.etree.ElementTree as ET
+from statistics import median
+from typing import Any, Optional
 
-import httpx
+from dotenv import load_dotenv
 from phoenix.client import Client
-from phoenix.client.experiments import get_experiment
 
-REPO_EVAL_DIR = Path(__file__).resolve().parent.parent
-OUTPUT_PATH = REPO_EVAL_DIR / "RESULTS.md"
-XML_PATH = REPO_EVAL_DIR / "evaluation.xml"
+OUTPUT_PATH = Path(__file__).resolve().parent.parent / "RESULTS.md"
 
 
-def load_qa_pairs() -> List[Dict[str, str]]:
-    """Loads QA pairs directly from evaluation.xml."""
-    if not XML_PATH.exists():
-        return []
+@dataclass
+class RunRecord:
+    query: str
+    expected: str
+    output: str
+    latency_s: Optional[float]
+    error: Optional[str]
+    labels: dict[str, str] = field(default_factory=dict)
+    scores: dict[str, Optional[float]] = field(default_factory=dict)
+
+
+def _seconds(start: Any, end: Any) -> Optional[float]:
     try:
-        tree = ET.parse(XML_PATH)
-        return [
-            {
-                "query": pair.find("question").text.strip(),
-                "expected": pair.find("answer").text.strip(),
-            }
-            for pair in tree.getroot().findall("qa_pair")
-        ]
-    except Exception:
-        return []
+        return (datetime.fromisoformat(str(end)) - datetime.fromisoformat(str(start))).total_seconds()
+    except (TypeError, ValueError):
+        return None
 
 
-def safe_json_loads(val: Any) -> Any:
-    """Attempts to decode a JSON string if needed."""
-    if isinstance(val, str):
-        try:
-            return json.loads(val)
-        except Exception:
-            return val
-    return val
+def _response_text(output: Any) -> str:
+    if isinstance(output, dict):
+        output = output.get("responses", output)
+    return " ".join(str(output or "").split())
 
 
-def get_field(obj: Any, key: str, default: Any = None) -> Any:
-    if obj is None:
-        return default
-    if isinstance(obj, dict):
-        return obj.get(key, default)
-    return getattr(obj, key, default)
+def load_runs(client: Client, experiment_id: str) -> list[RunRecord]:
+    experiment = client.experiments.get_experiment(experiment_id=experiment_id)
+    dataset = client.datasets.get_dataset(
+        dataset=experiment["dataset_id"], version_id=experiment["dataset_version_id"]
+    )
+    examples = {ex["id"]: ex for ex in dataset.examples}
 
+    position_of = {ex["id"]: pos for pos, ex in enumerate(dataset.examples)}
+    records: dict[str, RunRecord] = {}
 
-def parse_run(item: Any) -> Dict[str, Any]:
-    """Flattens a run item into a clean record."""
-    raw_output = safe_json_loads(get_field(item, "output", {}))
-    if isinstance(raw_output, dict):
-        out_text = str(
-            raw_output.get("responses")
-            or raw_output.get("response")
-            or raw_output.get("output")
-            or ""
+    for run in experiment["task_runs"]:
+        example = examples.get(run["dataset_example_id"], {})
+        records[run["id"]] = RunRecord(
+            query=str(example.get("input", {}).get("query", "")),
+            expected=str(example.get("output", {}).get("expected", "")),
+            output=_response_text(run.get("output")),
+            latency_s=_seconds(run.get("start_time"), run.get("end_time")),
+            error=run.get("error"),
         )
-    else:
-        out_text = str(raw_output or "")
 
-    raw_example = safe_json_loads(get_field(item, "example", {}))
-    raw_input = safe_json_loads(
-        get_field(item, "input") or get_field(raw_example, "input", {})
+    for evaluation in experiment["evaluation_runs"]:
+        record = records.get(evaluation.experiment_run_id)
+        if record is None:
+            continue
+        result = evaluation.result
+        if isinstance(result, (list, tuple)):
+            result = result[0] if result else None
+        result = result or {}
+        record.labels[evaluation.name] = str(result.get("label") or "error")
+        record.scores[evaluation.name] = result.get("score")
+
+    runs_by_example = sorted(
+        ((position_of.get(run["dataset_example_id"], 10**6), records[run["id"]]) for run in experiment["task_runs"]),
+        key=lambda item: item[0],
     )
-    raw_expected = safe_json_loads(
-        get_field(item, "expected") or get_field(raw_example, "output", {})
-    )
+    return [record for _, record in runs_by_example]
 
-    if isinstance(raw_input, dict):
-        query = str(raw_input.get("query") or raw_input.get("input") or "")
-    else:
-        query = str(raw_input or "")
 
-    if isinstance(raw_expected, dict):
-        expected = str(
-            raw_expected.get("expected") or raw_expected.get("answer") or ""
+def _rate(runs: list[RunRecord], metric: str) -> str:
+    scored = [r.scores.get(metric) for r in runs if r.scores.get(metric) is not None]
+    if not scored:
+        return "n/a"
+    hits = sum(1 for s in scored if s >= 1)
+    return f"{100 * hits / len(runs):.0f}% ({hits}/{len(runs)})"
+
+
+def _cell(text: str, limit: int = 80) -> str:
+    text = text.replace("|", "\\|")
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def render(experiments: dict[str, tuple[str, list[RunRecord]]]) -> str:
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    lines = [
+        "# Airport MCP – Agent Evaluation Results",
+        "",
+        f"*Generated {now} by `eval/phoenix/generate_results_md.py`.*",
+        "",
+        f"Agent model: `{os.getenv('AGENT_MODEL', 'unknown')}` · Judge model: `{os.getenv('JUDGE_MODEL', 'unknown')}`"
+        " (different models to avoid self-preference bias).",
+        "",
+        "An LLM agent (LangChain + in-memory MCP adapter) answers every question in",
+        "`eval/evaluation.xml` using only the server's tools. Each answer is scored by:",
+        "",
+        "- **Exact match** (headline): normalized response equals the ground truth.",
+        "- **Contains answer**: ground truth appears as a whole token (separates formatting from reasoning failures).",
+        "- **Scope** (LLM judge): agent stayed within FAA airport-infrastructure data and did not invent out-of-scope facts.",
+        "",
+        "## Summary",
+        "",
+        "| Prompt | Experiment ID | Exact match | Contains answer | Scope | Task errors | Median latency |",
+        "|---|---|:---:|:---:|:---:|:---:|:---:|",
+    ]
+    for version, (exp_id, runs) in experiments.items():
+        latencies = [r.latency_s for r in runs if r.latency_s is not None]
+        lines.append(
+            f"| {version} | `{exp_id}` | {_rate(runs, 'exact_match')} | {_rate(runs, 'contains_answer')} "
+            f"| {_rate(runs, 'check_answer_scope')} | {sum(1 for r in runs if r.error)} "
+            f"| {f'{median(latencies):.1f}s' if latencies else 'n/a'} |"
         )
-    else:
-        expected = str(raw_expected or "")
 
-    # Extract start time for chronological sorting
-    start_time = get_field(item, "start_time") or get_field(item, "created_at")
-
-    # Evaluations resolution
-    raw_evals = get_field(item, "evaluations", [])
-    corr_label = "N/A"
-    corr_score = None
-    scope_label = "within_scope"
-
-    if isinstance(raw_evals, list):
-        for ev in raw_evals:
-            ev_name = get_field(ev, "name", "")
-            ev_label = get_field(ev, "label")
-            ev_sc = get_field(ev, "score")
-            if "match_expected_response" in ev_name or "correctness" in ev_name:
-                corr_label = str(ev_label) if ev_label is not None else "N/A"
-                corr_score = ev_sc
-            elif "scope" in ev_name or "relevance" in ev_name:
-                scope_label = str(ev_label) if ev_label is not None else "within_scope"
-
-    return {
-        "query": query.replace("\n", " ").strip(),
-        "expected": expected.replace("\n", " ").strip(),
-        "output": out_text.replace("\n", " ").strip(),
-        "correctness_label": corr_label,
-        "correctness_score": corr_score,
-        "scope_label": scope_label,
-        "start_time": start_time or "",
-    }
+    versions = list(experiments)
+    reference = experiments[versions[0]][1]
+    header = "| # | Question | Expected | " + " | ".join(f"{v} output | {v} exact" for v in versions) + " |"
+    lines += ["", "## Per-question results", "", header, "|" + "---|" * (3 + 2 * len(versions))]
+    for i, ref in enumerate(reference):
+        cells = [str(i + 1), _cell(ref.query, 120), f"`{ref.expected}`"]
+        for v in versions:
+            runs = experiments[v][1]
+            run = runs[i] if i < len(runs) else None
+            if run is None:
+                cells += ["–", "–"]
+                continue
+            output = f"ERROR: {run.error}" if run.error else run.output
+            cells += [f"`{_cell(output)}`", "✅" if (run.scores.get("exact_match") or 0) >= 1 else "❌"]
+        lines.append("| " + " | ".join(cells) + " |")
+    return "\n".join(lines) + "\n"
 
 
-def fetch_experiment_runs(
-    exp_obj: Any, exp_id: str, phoenix_url: str
-) -> List[Dict[str, Any]]:
-    runs_data = []
-
-    # 1. Check Python SDK object
-    candidate_runs = getattr(exp_obj, "runs", None) or getattr(
-        exp_obj, "task_runs", None
-    )
-    if candidate_runs and isinstance(candidate_runs, (list, tuple)):
-        for r in candidate_runs:
-            runs_data.append(parse_run(r))
-
-    # 2. REST API fallback
-    if not runs_data:
-        for ep in [
-            f"{phoenix_url.rstrip('/')}/v1/experiments/{exp_id}/runs",
-            f"{phoenix_url.rstrip('/')}/v1/experiment_runs?experiment_id={exp_id}",
-        ]:
-            try:
-                resp = httpx.get(ep, timeout=5.0)
-                if resp.status_code == 200:
-                    payload = resp.json()
-                    items = (
-                        payload.get("data")
-                        if isinstance(payload, dict)
-                        else payload
-                    )
-                    if isinstance(items, dict):
-                        items = items.get("runs", [])
-                    if isinstance(items, list) and items:
-                        for it in items:
-                            runs_data.append(parse_run(it))
-                        break
-            except Exception:
-                pass
-
-    # 3. Sort chronologically so runs are in forward order (1..10)
-    if runs_data and runs_data[0].get("start_time"):
-        runs_data.sort(key=lambda x: str(x["start_time"]))
-    else:
-        # If no timestamps exist, invert the descending list returned by Phoenix
-        runs_data.reverse()
-
-    # 4. Align with evaluation.xml
-    qa_pairs = load_qa_pairs()
-    for idx, run_rec in enumerate(runs_data):
-        # Match by query if missing or fill by index
-        if not run_rec["query"] and idx < len(qa_pairs):
-            run_rec["query"] = qa_pairs[idx]["query"]
-            run_rec["expected"] = qa_pairs[idx]["expected"]
-
-        # If expected is known, evaluate exact or substring match
-        expected = run_rec["expected"]
-        output = run_rec["output"]
-        if expected and output:
-            is_match = (expected.lower() == output.lower()) or (
-                expected.lower() in output.lower()
-            )
-            run_rec["correctness_score"] = 1 if is_match else 0
-            run_rec["correctness_label"] = (
-                "correct" if is_match else "incorrect"
-            )
-
-    return runs_data
-
-
-def main():
-    parser = argparse.ArgumentParser(
-        description="Generate eval/RESULTS.md from Phoenix experiment runs"
-    )
-    parser.add_argument(
-        "--dataset-name",
-        default="airport-eval-xml",
-        help="Dataset name registered in Phoenix",
-    )
-    parser.add_argument(
-        "--phoenix-url",
-        default="http://localhost:6006",
-        help="Base URL of Phoenix server",
-    )
-    parser.add_argument(
-        "--v1-id",
-        default=None,
-        help="Explicit Experiment ID for prompt v1",
-    )
-    parser.add_argument(
-        "--v2-id",
-        default=None,
-        help="Explicit Experiment ID for prompt v2",
-    )
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--experiment", action="append", required=True, metavar="LABEL=ID",
+                        help="Experiment to include, e.g. v1=RXhwZXJpbWVudDox. Repeat for each prompt version.")
+    parser.add_argument("--phoenix-url", default="http://localhost:6006")
+    parser.add_argument("--output", type=Path, default=OUTPUT_PATH)
     args = parser.parse_args()
+    load_dotenv()
 
     client = Client(base_url=args.phoenix_url)
+    experiments: dict[str, tuple[str, list[RunRecord]]] = {}
+    for spec in args.experiment:
+        label, _, exp_id = spec.partition("=")
+        if not exp_id:
+            parser.error(f"--experiment must be LABEL=ID, got {spec!r}")
+        experiments[label] = (exp_id, load_runs(client, exp_id))
 
-    v1_id = args.v1_id
-    v2_id = args.v2_id
-
-    if not v1_id or not v2_id:
-        try:
-            dataset = client.datasets.get_dataset(dataset=args.dataset_name)
-            dataset_id = getattr(dataset, "id", None)
-            if dataset_id:
-                ep_url = f"{args.phoenix_url.rstrip('/')}/v1/datasets/{dataset_id}/experiments"
-                resp = httpx.get(ep_url, timeout=10.0)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    exps = (
-                        data.get("data", [])
-                        if isinstance(data, dict)
-                        else data
-                    )
-                    for e in exps:
-                        name = e.get("name", "")
-                        eid = e.get("id")
-                        if not v1_id and "v1" in name:
-                            v1_id = eid
-                        elif not v2_id and "v2" in name:
-                            v2_id = eid
-                    if not v2_id and exps:
-                        v2_id = exps[-1].get("id")
-                    if not v1_id and len(exps) > 1:
-                        v1_id = exps[-2].get("id")
-        except Exception:
-            pass
-
-    experiments_to_process = []
-    if v1_id:
-        experiments_to_process.append(("Version 1 (Baseline)", v1_id))
-    if v2_id:
-        experiments_to_process.append(("Version 2 (Strict Output)", v2_id))
-
-    lines = [
-        "# Airport MCP Evaluation Results",
-        f"\n*Generated on {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC*",
-        "\n## Executive Summary",
-        "This evaluation benchmarks the **Airport MCP Server** using an automated LLM-as-judge evaluation harness (Arize Phoenix). "
-        "The agent was tested across multi-hop reasoning questions from `evaluation.xml` comparing two prompt configurations:\n",
-        "- **Prompt v1**: Baseline conversational FAA airport specialist.",
-        "- **Prompt v2**: Strict output constraint enforcing atomic values without conversational filler.",
-    ]
-
-    target_runs = []
-
-    for label, exp_id in experiments_to_process:
-        try:
-            exp_obj = get_experiment(experiment_id=exp_id, client=client)
-        except Exception:
-            exp_obj = None
-
-        runs = fetch_experiment_runs(exp_obj, exp_id, args.phoenix_url)
-        total_runs = len(runs)
-
-        lines.append(f"\n### {label} Summary")
-        lines.append(f"- **Experiment ID**: `{exp_id}`")
-        lines.append(f"- **Total Evaluated Cases**: {total_runs}")
-
-        if total_runs > 0:
-            correct_cnt = sum(
-                r["correctness_score"]
-                for r in runs
-                if r["correctness_score"] is not None
-            )
-            accuracy = (correct_cnt / total_runs) * 100
-            lines.append(
-                f"- **Correctness Accuracy**: {accuracy:.1f}% ({int(correct_cnt)}/{total_runs})"
-            )
-
-            in_scope_cnt = sum(
-                1 for r in runs if r["scope_label"] == "within_scope"
-            )
-            scope_pct = (in_scope_cnt / total_runs) * 100
-            lines.append(
-                f"- **Tool-Scope Relevance**: {scope_pct:.1f}% ({int(in_scope_cnt)}/{total_runs})"
-            )
-
-        if runs and ("v2" in label.lower() or not target_runs):
-            target_runs = runs
-
-    if target_runs:
-        lines.append("\n## Detailed Benchmark Breakdown")
-        lines.append(
-            "| # | Question | Ground Truth | Agent Output | Correctness | Scope |"
-        )
-        lines.append("|---|---|---|---|:---:|:---:|")
-
-        for idx, r in enumerate(target_runs):
-            lines.append(
-                f"| {idx + 1} | {r['query']} | `{r['expected']}` | `{r['output']}` | {r['correctness_label']} | {r['scope_label']} |"
-            )
-
-    lines.append("\n## Key Takeaways")
-    lines.append(
-        "1. **Formatting Precision**: Enforcing single-value output constraints (`system_prompt_v2`) avoids conversational framing that can trigger false negatives in exact-match string evaluators."
-    )
-    lines.append(
-        "2. **Domain Boundary Control**: Tool calls remained within scope boundaries, with the agent accurately selecting between `airport_get_runways` (for physical dimensions) and `airport_get_runway_ends` (for threshold elevations and glideslopes)."
-    )
-    lines.append(
-        "3. **In-Memory MCP Execution**: Running the FastMCP adapter directly in-memory eliminated transport deadlocks, ensuring stable evaluation execution."
-    )
-
-    OUTPUT_PATH.write_text("\n".join(lines), encoding="utf-8")
-    print(f"Successfully generated evaluation report at: {OUTPUT_PATH}")
+    args.output.write_text(render(experiments), encoding="utf-8")
+    print(f"Wrote {args.output}")
 
 
 if __name__ == "__main__":
     main()
-    

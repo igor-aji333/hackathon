@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "airport-mcp"
-version = "0.2.0"
-description = "FastMCP server for querying FAA airport runway data."
+version = "0.3.0"
+description = "FastMCP server for querying FAA NASR airport, runway, and runway-end data."
 requires-python = ">=3.11"
 license = "Unlicense"
 authors = [
@@ -13,33 +13,32 @@ authors = [
 ]
 
 dependencies = [
-    "pandas>=2.0.0",
+    "fastmcp>=4.1,<5",
+    "httpx>=0.27.0",
+    "numpy>=1.26.0",
+    "pandas>=2.0.0,<3.0.0",
     "pyarrow>=14.0.0",
-    "httpx>=0.27.0",       # <-- FIXED: Replaced requests with httpx
-    "python-dotenv>=1.0.0",# <-- FIXED: Moved from dev to main
-    "beautifulsoup4>=4.12.0",
-    "fastmcp>=0.3.0",
     "pydantic>=2.5.0",
     "pydantic-settings>=2.1.0",
     "starlette>=0.35.0",
-    "uvicorn>=0.25.0"
-] 
+    "uvicorn>=0.25.0",
+]
 
 [project.optional-dependencies]
-dev = [
-    "pytest",
-    "pytest-asyncio>=0.23.0",
-    "black",
-    "flake8"
-]
 s3 = [
-    "boto3>=1.34.0"        # <-- FIXED: Added missing [s3] target from DEPLOYMENT.md
+    "boto3>=1.34.0",
 ]
+
+[project.scripts]
+airport-mcp = "airport_mcp.server:main"
 
 [dependency-groups]
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
+    "pyyaml>=6.0.0",
+]
+eval = [
     "arize-phoenix>=18.0.0",
     "arize-phoenix-client>=2.13.0",
     "arize-phoenix-evals>=3.1.1",
@@ -48,15 +47,17 @@ dev = [
     "openinference-instrumentation-langchain>=0.1.67",
     "opentelemetry-exporter-otlp>=1.43.0",
     "opentelemetry-sdk>=1.43.0",
-    "pandas>=2.0.0",
-    "pyyaml>=6.0.0"
+    "python-dotenv>=1.0.0",
+    "pyyaml>=6.0.0",
 ]
 
 [tool.setuptools]
 packages = ["airport_mcp"]
 
 [tool.pytest.ini_options]
+asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
 filterwarnings = [
     "ignore::DeprecationWarning:ldap3.*",
 ]

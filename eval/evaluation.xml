@@ -1,3 +1,10 @@
+<!--
+  Agent-level evaluation set. Every answer was verified against FAA NASR cycle
+  2026-10-29 with the server's own tools (see eval/tool_eval for the
+  deterministic checks). Each question has exactly one correct value.
+  Categories: runway lookup, runway-end lookup, aggregation, name resolution,
+  non-K ICAO, proximity search, missing airport, and out-of-scope refusal.
+-->
 <evaluation>
    <qa_pair>
       <question>Find the runway at KJFK with surface type CONC that has the longest length in feet. What is the length? Provide only the number.</question>
@@ -23,20 +30,48 @@
       <question>Compare all runway ends at San Francisco International (KSFO). Which runway end ID has the highest recorded elevation? Provide only the runway end ID.</question>
       <answer>28R</answer>
    </qa_pair>
-      <qa_pair>
-      <question>Find the runway end at Miami International (KMIA) with the lowest recorded true alignment value. What is the runway end ID?</question>
-      <answer>08L</answer>
+   <qa_pair>
+      <question>Find the runway end at Miami International (KMIA) with the highest true alignment value. Provide only the runway end ID.</question>
+      <answer>30</answer>
    </qa_pair>
    <qa_pair>
       <question>Query Boston Logan (KBOS) for its runways. How many runways have a physical width of 150 feet? Provide only the number.</question>
       <answer>4</answer>
    </qa_pair>
    <qa_pair>
-      <question>At Newark Liberty International (KEWR), identify the shortest paved airplane runway (excluding helipads). What is its runway ID?</question>
+      <question>At Newark Liberty International (KEWR), identify the shortest paved airplane runway (excluding helipads). Provide only its runway ID.</question>
       <answer>11/29</answer>
    </qa_pair>
    <qa_pair>
-      <question>Locate runway end 22R at Detroit Metro (KDTW). What is the specified approach light system code?</question>
+      <question>Locate runway end 22R at Detroit Metro (KDTW). What is the specified approach light system code? Provide only the code.</question>
       <answer>MALSR</answer>
-   </qa_pair>  
+   </qa_pair>
+   <qa_pair>
+      <question>What is the ICAO code of Ted Stevens Anchorage International Airport? Provide only the code.</question>
+      <answer>PANC</answer>
+   </qa_pair>
+   <qa_pair>
+      <question>How many runways does PANC have? Provide only the number.</question>
+      <answer>3</answer>
+   </qa_pair>
+   <qa_pair>
+      <question>What is the FAA identifier of Hartsfield-Jackson Atlanta International Airport? Provide only the identifier.</question>
+      <answer>ATL</answer>
+   </qa_pair>
+   <qa_pair>
+      <question>A flight near Denver International (KDEN) needs to divert. What is the FAA identifier of the nearest public-use airport, other than KDEN, that has a paved runway of at least 8000 feet with an ILS? Provide only the identifier.</question>
+      <answer>CFO</answer>
+   </qa_pair>
+   <qa_pair>
+      <question>Within 40 nautical miles of San Francisco International (KSFO), which other airport is the closest one with a runway at least 10000 feet long? Provide only its FAA identifier.</question>
+      <answer>OAK</answer>
+   </qa_pair>
+   <qa_pair>
+      <question>How long is the longest runway at airport KZZQ? If the airport does not exist in the FAA data, answer NOT_FOUND.</question>
+      <answer>NOT_FOUND</answer>
+   </qa_pair>
+   <qa_pair>
+      <question>What is the current weather (METAR) at KJFK? If your tools cannot provide it, answer UNAVAILABLE.</question>
+      <answer>UNAVAILABLE</answer>
+   </qa_pair>
 </evaluation>

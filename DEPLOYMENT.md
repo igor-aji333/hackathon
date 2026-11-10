@@ -1,157 +1,83 @@
-# Deployment Instructions
+# Deployment
 
-## Prerequisites
-- Python 3.13 or higher
-- Git
-
-## Installation
-
-1. Clone the repository:
-```bash
-git clone <repo-url>
-cd hackathon
-```
-
-2. Set up virtual environment:
-```bash
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-```
-
-3. Install dependencies:
-```bash
-pip install -r requirements.txt
-# Or using uv:
-uv pip install -r requirements.txt
-```
-
-## Running the MCP Server
+## Local
 
 ```bash
-python -m airport_mcp.server
+uv sync
+uv run airport-mcp                                     # stdio
+MCP_TRANSPORT=streamable-http MCP_PORT=8000 uv run airport-mcp
+curl http://127.0.0.1:8000/health
 ```
 
-## Storage Backends
+When `PORT` or `DATABRICKS_APP_PORT` is set (as hosting platforms do), the server ignores
+`MCP_TRANSPORT`. It serves streamable HTTP on `0.0.0.0:<port>`, with the MCP endpoint at `/mcp` and a
+readiness probe at `/health`.
 
-The server supports multiple storage backends for caching the CSV data:
+## Data cache
 
+The FAA publishes a new NASR cycle every 28 days. The server works out the current cycle from the
+calendar and downloads `https://nfdc.faa.gov/webContent/28DaySub/extra/<DD>_<Mon>_<YYYY>_APT_CSV.zip`.
+It stores the three tables it needs as Parquet, one file per table per cycle:
 
-### Local Filesystem (default)
-Data is stored in `~/.airport_mcp_data/`:
-- `<dataset>.parquet` - Parquet runway datasets
-- `nasr_cycle_timestamp.txt` - NASR cycle timestamp
+```
+nasr_2026-10-29_APT_BASE.parquet
+nasr_2026-10-29_APT_RWY.parquet
+nasr_2026-10-29_APT_RWY_END.parquet
+```
 
-### AWS S3
-Set the following environment variables:
+- **Local** (default): `~/.airport_mcp_data/`, or set `AIRPORT_MCP_DATA_DIR`. Use a persistent volume in containers.
+- **S3**: `AIRPORT_MCP_STORAGE_BACKEND=s3`, `AIRPORT_MCP_S3_BUCKET=<bucket>`, and optionally
+  `AIRPORT_MCP_S3_KEY=<prefix>`. Install with `uv sync --extra s3`. Credentials come from the standard
+  AWS chain (environment variables, profile, or IAM role).
+
+If a new cycle cannot be downloaded, the server keeps serving the previous cycle and retries after
+15 minutes. Old cycle files can be deleted at any time.
+
+> Upgrading from 0.2.x: the old cache files (`APT_RWY.parquet`, `APT_RWY_END.parquet`,
+> `FAA_NASR_*.zip`, `nasr_cycle_timestamp.txt`) are no longer used and can be removed.
+
+## Databricks Apps
+
+[`app.yaml`](app.yaml) runs `python -m airport_mcp.server`. Databricks sets `DATABRICKS_APP_PORT`, so
+the app serves streamable HTTP.
+
 ```bash
-export AIRPORT_MCP_STORAGE_BACKEND=s3
-export AIRPORT_MCP_S3_BUCKET=your-bucket-name
-export AIRPORT_MCP_S3_KEY="airport_mcp/"  # Optional prefix
-```
-
-Install boto3:
-```bash
-pip install -e ".[s3]"
-```
-
-## MCP Client Configuration
-Add to your MCP client configuration:
-```json
-{
-  "mcpServers": {
-    "airport": {
-      "command": "python",
-      "args": ["-m", "airport_mcp.server"],
-      "cwd": "/path/to/hackathon"
-    }
-  }
-}
-```
-
-## Test DataBricks deployment
-### Login
-```bash
-databricks auth login --host https://dbc-aae0ba16-8727.cloud.databricks.com
-```
-
-### Verify login:
-```bash
-databricks current-user me
-```
-
-
-### Update to  the latest commit:
-```bash
+databricks auth login --host https://<workspace>.cloud.databricks.com
 databricks apps deploy airport --git-branch master
-```
-
-### Check logs:
-```bash
 databricks apps logs airport --tail-lines 100
 ```
 
-### Get the token:
+Smoke test against the deployed app:
+
 ```bash
-DATABRICKS_TOKEN="$(databricks auth token --output json | jq -r .access_token)"
+APP_URL=https://<app-name>.aws.databricksapps.com
+TOKEN="$(databricks auth token --output json | jq -r .access_token)"
+HDRS=(-H "Content-Type: application/json" -H "Accept: application/json, text/event-stream"
+      -H "Authorization: Bearer $TOKEN" -H "Mcp-Protocol-Version: 2025-06-18")
+
+SESSION_ID=$(curl -s -i -X POST "$APP_URL/mcp" "${HDRS[@]}" -d '{
+  "jsonrpc": "2.0", "id": 1, "method": "initialize",
+  "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "curl", "version": "1"}}
+}' | grep -i '^mcp-session-id:' | awk '{print $2}' | tr -d '\r')
+
+curl -s -X POST "$APP_URL/mcp" "${HDRS[@]}" -H "Mcp-Session-Id: $SESSION_ID" \
+  -d '{"jsonrpc": "2.0", "method": "notifications/initialized"}'
+
+curl -s -X POST "$APP_URL/mcp" "${HDRS[@]}" -H "Mcp-Session-Id: $SESSION_ID" -d '{
+  "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+  "params": {"name": "airport_get_runways", "arguments": {"airport_id": "DCA"}}
+}' | sed -n 's/^data: //p' | jq -r '
+  .result.structuredContent as $d |
+  "### Runways at \($d.airport.name) (\($d.airport.faa_id)/\($d.airport.icao_id)) – cycle \($d.data_cycle)",
+  "| Runway | Length | Width | Surface | ILS |", "|---|---|---|---|---|",
+  ($d.runways[] | "| \(.runway_id) | \(.length_ft) | \(.width_ft) | \(.surface) | \(.has_ils) |")'
 ```
-
-
-### Get session id:
-```bash
-SESSION_ID=$(curl -s -i -X POST "https://airport-7474654188777746.aws.databricksapps.com/mcp" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $DATABRICKS_TOKEN" \
-  -H "Mcp-Protocol-Version: 2025-03-26" \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": 1,
-    "method": "initialize",
-    "params": {
-      "protocolVersion": "2025-03-26",
-      "capabilities": {},
-      "clientInfo": {"name": "curl-test", "version": "1.0.0"}
-    }
-  }' | grep -i '^mcp-session-id:' | awk '{print $2}' | tr -d '\r')
-
-```
-
-### Make a request:
-```bash
-curl -s -X POST "https://airport-7474654188777746.aws.databricksapps.com/mcp" \
-     -H "Content-Type: application/json" \
-     -H "Authorization: Bearer $DATABRICKS_TOKEN" \
-     -H "Mcp-Protocol-Version: 2025-03-26" \
-     -H "Mcp-Session-Id: $SESSION_ID" \
-     -d '{
-       "jsonrpc": "2.0",
-       "id": 2,
-       "method": "tools/call",
-       "params": {
-         "name": "airport_get_runways",
-         "arguments": {
-           "icao_or_faa_id": "DCA",
-           "response_format": "json"
-         }
-       }
-     }' | sed -n 's/^data: //p' | jq -r '
-    .result.content[0].text | fromjson as $d |
-    "### Runways for \($d.icao_id) (\($d.city), \($d.state), \($d.country))\n",
-    "| Runway | Length (ft) | Width (ft) | Surface | Condition | Lights |",
-    "|---|---|---|---|---|---|",
-    ($d.items[] | "| \(.rwy_id) | \(.length_ft | floor) | \(.width_ft | floor) | \(.surface) | \(.condition) | \(.lights) |")
-  '
-```    
-
-## Data Caching
-
-- Runway data is cached for 28 days before automatic re-download
-- The cache timestamp is derived from the FAA zip filename date (not current time)
-- Data is read from all configured storage backends on load
 
 ## Troubleshooting
 
-- **Network issues**: Ensure internet connectivity to download FAA data
-- **Permission errors**: Check write permissions for `~/.airport_mcp_data/`
-- **Data not found**: Verify the airport identifier exists in FAA records
-- **S3 access denied**: Ensure AWS credentials are configured (via env vars or IAM role)
-
+| Symptom | Cause / fix |
+|---|---|
+| `/health` reports `initializing` | The first download is still running, or it failed. Check the logs for `pre-warm failed`. Tool calls retry automatically. |
+| Tool error "temporarily unavailable" | The FAA site is unreachable and no cached cycle exists. Check outbound HTTPS to `nfdc.faa.gov`. |
+| `AIRPORT_MCP_S3_BUCKET must be set` | You set the S3 backend without a bucket. |
+| S3 `AccessDenied` | The IAM role needs `s3:GetObject` and `s3:PutObject` on the prefix. |

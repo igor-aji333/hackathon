@@ -1,8 +1,8 @@
 datasets:
-  airport-eval-xml:
+  airport-eval:
     xml_path: ../evaluation.xml
     input_keys:
       - query
     output_keys:
       - expected
-    description: "Comprehensive 10-question evaluation suite requiring multi-hop reasoning, following MCP best practices."
+    description: "17-question agent evaluation: runway and runway-end lookups, aggregation, name resolution, non-K ICAO codes, proximity search, missing-airport and out-of-scope handling."

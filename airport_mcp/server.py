@@ -1,93 +1,88 @@
-import os
-import asyncio
-from dotenv import load_dotenv
+"""Server entry point: wires the FAA data repository to MCP tools and selects a transport.
 
-# MUST be called before any other imports read environment variables
-load_dotenv()
+Run with `python -m airport_mcp.server` or `fastmcp run airport_mcp/server.py:mcp`.
+"""
 
 import logging
+from contextlib import asynccontextmanager
+from typing import Optional
+
 from fastmcp import FastMCP
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse
 
-from .airport_get_runways import airport_manager, airport_get_runways
-from .airport_get_runway_ends import airport_runway_end_manager, airport_get_runway_ends
+from .config import Settings
+from .repository import AirportRepository
+from .storage import create_store
+from .tools import register_tools
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
 logger = logging.getLogger(__name__)
 
-SERVER_INSTRUCTIONS = """
-TOOL SELECTION GUIDE:
-- airport_get_runways: Use for physical structural runway data (length, width, surface, lighting).
-- airport_get_runway_ends: Use for thresholds, elevations, glide slopes, and alignments.
+SERVER_INSTRUCTIONS = """\
+Official FAA NASR data for US airports (all 50 states and territories), refreshed every 28-day cycle.
 
-DOMAIN CONVENTIONS:
-- Inputs accept either 3-letter FAA codes (e.g., JFK) or 4-letter ICAO codes (e.g., KJFK).
-- Required environment variable for custom storage: AIRPORT_MCP_STORAGE_BACKEND (local, s3, databricks).
+Typical workflow:
+1. If the user names an airport rather than giving a code, call airport_search to get its identifier.
+2. Call airport_get_runways for anything about one airport's runways or runway ends.
+3. Call airport_find_nearby to find or compare airports around a location by runway capability.
+
+Identifiers: FAA codes ('JFK', 'ANC') and ICAO codes ('KJFK', 'PANC') are both accepted.
+Units: lengths and elevations in feet; distances in nautical miles; alignments and bearings are true degrees.
+Scope: static airport infrastructure only. No weather, NOTAMs, flight schedules, or non-US airports.
 """
 
-mcp = FastMCP("Airport MCP Server", instructions=SERVER_INSTRUCTIONS)
 
-# Register tools with explicit names and capability annotations
-mcp.tool(
-    name="airport_get_runways",
-    annotations={"readOnlyHint": True, "idempotentHint": True}
-)(airport_get_runways)
+def create_server(repository: Optional[AirportRepository] = None) -> FastMCP:
+    if repository is None:
+        repository = AirportRepository(create_store(Settings()))
 
-mcp.tool(
-    name="airport_get_runway_ends",
-    annotations={"readOnlyHint": True, "idempotentHint": True}
-)(airport_get_runway_ends)
+    @asynccontextmanager
+    async def prewarm(server: FastMCP):
+        # Load data before serving so the first tool call is fast; on failure, tools retry lazily.
+        try:
+            await repository.get()
+        except Exception:
+            logger.exception("Airport data pre-warm failed; will retry on first tool call")
+        yield {}
+
+    mcp = FastMCP(
+        "Airport MCP Server",
+        instructions=SERVER_INSTRUCTIONS,
+        lifespan=prewarm,
+        mask_error_details=True,
+    )
+    register_tools(mcp, repository)
+
+    @mcp.custom_route("/health", methods=["GET"])
+    async def health(request: Request) -> JSONResponse:
+        dataset = repository.dataset
+        return JSONResponse({
+            "status": "ready" if dataset else "initializing",
+            "service": "airport_mcp",
+            "data_cycle": dataset.cycle.isoformat() if dataset else None,
+            "airports_loaded": len(dataset.airports) if dataset else 0,
+        })
+
+    @mcp.custom_route("/", methods=["GET"])
+    async def root(request: Request) -> RedirectResponse:
+        return RedirectResponse(url="/health")
+
+    return mcp
 
 
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
-    mcp_transport: str = "stdio"
-    mcp_host: str = "0.0.0.0"
-    mcp_port: int = 8000
+mcp = create_server()
 
-@mcp.custom_route("/health", methods=["GET"])
-async def health_check(request: Request) -> JSONResponse:
-    is_ready = (airport_manager.client.df is not None) and (airport_runway_end_manager.client.df is not None)
-    return JSONResponse({
-        "status": "healthy" if is_ready else "initializing",
-        "service": "airport_mcp",
-        "runways_cache_timestamp": airport_manager.client.last_download.isoformat() if airport_manager.client.last_download else None,
-        "runway_ends_cache_timestamp": airport_runway_end_manager.client.last_download.isoformat() if airport_runway_end_manager.client.last_download else None
-    })
 
-@mcp.custom_route("/", methods=["GET"])
-async def root(request: Request) -> RedirectResponse:
-    return RedirectResponse(url="/health")
+def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    settings = Settings()
+    if settings.platform_port:
+        mcp.run(transport="streamable-http", host="0.0.0.0", port=settings.platform_port)
+    elif settings.mcp_transport == "stdio":
+        mcp.run(transport="stdio")
+    else:
+        mcp.run(transport=settings.mcp_transport, host=settings.mcp_host, port=settings.mcp_port)
 
-async def pre_warm_caches():
-    """Asynchronously pre-warm the data caches on startup."""
-    try:
-        logger.info("Pre-warming data caches...")
-        await airport_manager._prepare_data()
-        await airport_runway_end_manager._prepare_data()
-        logger.info("Caches successfully pre-warmed.")
-    except Exception as e:
-        logger.critical(f"Fatal initialization failure: {e}")
-        raise
 
 if __name__ == "__main__":
-    settings = Settings()
-    platform_port = os.getenv("DATABRICKS_APP_PORT") or os.getenv("PORT")
-    
-    # Load the data before starting the server
-    asyncio.run(pre_warm_caches())
-    
-    # Start the server
-    if platform_port:
-        mcp.run(transport="streamable-http", host="0.0.0.0", port=int(platform_port))
-    elif settings.mcp_transport == "streamable-http":
-        mcp.run(transport="streamable-http", host=settings.mcp_host, port=settings.mcp_port)
-    elif settings.mcp_transport == "sse":
-        mcp.run(transport="sse", host=settings.mcp_host, port=settings.mcp_port)
-    else:
-        mcp.run(transport="stdio")
+    main()
