@@ -62,11 +62,8 @@ class StorageManager:
         self.config = config
         self._s3_client = None
         
-        if self.config.backend == StorageBackend.DATABRICKS:
-            self.base_dir = self.config.local_path
-            self._ensure_unity_catalog_volume()
             
-        elif self.config.backend == StorageBackend.LOCAL:
+        if self.config.backend == StorageBackend.LOCAL:
             self.base_dir = self.config.local_path
             self.base_dir.mkdir(parents=True, exist_ok=True)
 
