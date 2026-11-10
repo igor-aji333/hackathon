@@ -22,8 +22,7 @@ dependencies = [
     "pydantic>=2.5.0",
     "pydantic-settings>=2.1.0",
     "starlette>=0.35.0",
-    "uvicorn>=0.25.0",
-    "databricks-sdk>=0.30.0"
+    "uvicorn>=0.25.0"
 ] 
 
 [project.optional-dependencies]

@@ -41,27 +41,6 @@ Data is stored in `~/.airport_mcp_data/`:
 - `<dataset>.parquet` - Parquet runway datasets
 - `nasr_cycle_timestamp.txt` - NASR cycle timestamp
 
-
-### Databricks
-Data is automatically cached to a Unity Catalog Volume at `/Volumes/main/default/airport_mcp_data` (configurable via `AIRPORT_MCP_DATABRICKS_PATH`) when running inside Databricks. 
-
-**Automatic Provisioning & Access Permissions:**
-The server attempts to automatically create the Unity Catalog volume upon startup using the `databricks-sdk` if it doesn't exist. However, the Databricks App's automatically generated service principal needs prior permissions on the catalog and schema to do so, or the volume must be created manually.
-
-If provisioning manually or setting permissions, execute the following SQL in your Databricks workspace (replace `<app-name>` with your Databricks App name):
-
-```sql
--- 1. Create the schema and volume (if doing it manually)
-CREATE SCHEMA IF NOT EXISTS main.default;
-CREATE VOLUME IF NOT EXISTS main.default.airport_mcp_data;
-
--- 2. Grant the App's Service Principal permission to read/write to the volume
-GRANT READ VOLUME, WRITE VOLUME ON VOLUME main.default.airport_mcp_data TO `app-<app-name>`;
-
--- (Optional) If relying on the MCP server to create the volume automatically, grant schema privileges:
-GRANT USE SCHEMA, CREATE VOLUME ON SCHEMA main.default TO `app-<app-name>`;
-```
-
 ### AWS S3
 Set the following environment variables:
 ```bash

@@ -111,13 +111,6 @@ class TestStorageManager:
             assert config.s3_bucket == "test-bucket"
             assert config.s3_prefix == "test/prefix/"
 
-    def test_storage_config_databricks_env_var(self):
-        with patch.dict(
-            os.environ, {"DATABRICKS_RUNTIME_VERSION": "12.2"}, clear=True
-        ):
-            config = StorageConfig.from_env()
-            assert config.backend == StorageBackend.DATABRICKS
-
     def test_manager_save_and_load_local(self, tmp_path):
         config = StorageConfig(backend=StorageBackend.LOCAL, local_path=tmp_path)
         manager = StorageManager(config)

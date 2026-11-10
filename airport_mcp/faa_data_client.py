@@ -26,17 +26,12 @@ CSV_SUFFIX = ".csv"
 
 # --- Storage & Cache Configurations ---
 DEFAULT_S3_PREFIX = "airport_mcp/"
-DEFAULT_DATABRICKS_PATH = os.getenv(
-    "AIRPORT_MCP_DATABRICKS_PATH",
-    "/Volumes/main/default/airport_mcp_data"
-)
 DEFAULT_LOCAL_DIR_NAME = ".airport_mcp_data"
 CACHE_EXPIRATION_DAYS = 28
 
 class StorageBackend(Enum):
     LOCAL = "local"
     S3 = "s3"
-    DATABRICKS = "databricks"
 
 @dataclass
 class StorageConfig:
@@ -47,8 +42,7 @@ class StorageConfig:
     
     @classmethod
     def from_env(cls) -> "StorageConfig":
-        backend_str = os.environ.get("DATABRICKS_RUNTIME_VERSION")
-        backend = StorageBackend.DATABRICKS if backend_str else StorageBackend(
+        backend = StorageBackend(
             os.environ.get("AIRPORT_MCP_STORAGE_BACKEND", "local").lower()
         )
         
@@ -58,8 +52,6 @@ class StorageConfig:
                 s3_bucket=os.environ.get("AIRPORT_MCP_S3_BUCKET"),
                 s3_prefix=os.environ.get("AIRPORT_MCP_S3_KEY", DEFAULT_S3_PREFIX)
             )
-        elif backend == StorageBackend.DATABRICKS:
-            return cls(backend=backend, local_path=Path(DEFAULT_DATABRICKS_PATH))
             
         return cls(backend=backend, local_path=Path.home() / DEFAULT_LOCAL_DIR_NAME)
 
