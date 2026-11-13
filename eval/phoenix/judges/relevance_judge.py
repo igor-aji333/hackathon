@@ -46,6 +46,7 @@ def _evaluator() -> ClassificationEvaluator:
         llm=judge_llm,
         prompt_template=RELEVANCE_PROMPT_TEMPLATE,
         choices={"within_scope": 1, "out_of_scope": 0},
+        temperature=0,
     )
 
 
