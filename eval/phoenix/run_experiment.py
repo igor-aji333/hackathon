@@ -20,7 +20,18 @@ def main():
         help="Dataset name in datasets.yaml",
     )
     parser.add_argument(
-        "--system-prompt-version", choices=["v1", "v2"], default="v1"
+        "--system-prompt-version", choices=["v1", "v2", "baseline"], default="v1"
+    )
+    parser.add_argument(
+        "--no-tools",
+        action="store_true",
+        help="Run without the MCP server attached (no-tool baseline)",
+    )
+    parser.add_argument(
+        "--request-timeout",
+        type=float,
+        default=None,
+        help="Per-model-request timeout in seconds; bounds runaway generation",
     )
     parser.add_argument("--project-name", default="airport-mcp-eval")
     parser.add_argument("--phoenix-endpoint", default="http://localhost:4317")
@@ -41,11 +52,14 @@ def main():
         system_prompt_version=args.system_prompt_version,
         project_name=args.project_name,
         endpoint=args.phoenix_endpoint,
+        use_tools=not args.no_tools,
+        request_timeout=args.request_timeout,
     )
     task = agent.create_experiment_task()
 
     print(
         f"Executing experiment on dataset: {args.dataset_name} with prompt: {args.system_prompt_version}"
+        f" ({'no tools' if args.no_tools else 'MCP tools attached'})"
     )
 
     experiment = client.experiments.run_experiment(
@@ -53,7 +67,11 @@ def main():
         task=task,
         evaluators=EVALUATORS,
         experiment_name=f"airport-{args.system_prompt_version}",
-        experiment_metadata={"system_prompt_version": args.system_prompt_version},
+        experiment_metadata={
+            "system_prompt_version": args.system_prompt_version,
+            "tools": "none" if args.no_tools else "airport-mcp",
+            "request_timeout_s": args.request_timeout,
+        },
     )
 
     print(f"Experiment ID: {experiment['experiment_id']}")

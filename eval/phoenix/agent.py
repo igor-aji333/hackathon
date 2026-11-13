@@ -21,17 +21,25 @@ _OTEL_INITIALIZED = False
 load_dotenv()
 
 class AirportAgent:
-    """Agent connected to the Airport MCP server."""
+    """Agent connected to the Airport MCP server.
+
+    With use_tools=False the MCP server is not attached at all, which gives the
+    no-tool baseline used to measure the lift the server provides.
+    """
 
     def __init__(
         self,
         system_prompt_version: str = "v1",
         project_name: str = "airport-mcp-eval",
         endpoint: str = "http://localhost:4317",
+        use_tools: bool = True,
+        request_timeout: float | None = None,
     ):
         self.version = system_prompt_version
         self.project_name = project_name
         self.endpoint = endpoint
+        self.use_tools = use_tools
+        self.request_timeout = request_timeout
         self.stack: AsyncExitStack | None = None
         self.agent_executor = None
 
@@ -54,10 +62,13 @@ class AirportAgent:
             _OTEL_INITIALIZED = True
 
         self.stack = AsyncExitStack()
-        self.adapter = await self.stack.enter_async_context(
-            MCPAdapter(airport_server_app)
-        )
-        tools = await self.adapter.list_tools()
+        if self.use_tools:
+            self.adapter = await self.stack.enter_async_context(
+                MCPAdapter(airport_server_app)
+            )
+            tools = await self.adapter.list_tools()
+        else:
+            tools = []
 
         base_url = os.getenv("USAI_BASE_URL", "").rstrip("/")
         llm = ChatOpenAI(
@@ -65,6 +76,7 @@ class AirportAgent:
             api_key=os.getenv("USAI_API_KEY", "ollama"),
             base_url=base_url if base_url else None,
             temperature=0.0,
+            timeout=self.request_timeout,
         )
 
         self.agent_executor = create_agent(
@@ -99,6 +111,8 @@ class AirportAgent:
                 system_prompt_version=self.version,
                 project_name=self.project_name,
                 endpoint=self.endpoint,
+                use_tools=self.use_tools,
+                request_timeout=self.request_timeout,
             )
             future = asyncio.run_coroutine_threadsafe(
                 local_agent.run(query), _SHARED_LOOP

@@ -125,7 +125,7 @@ The server is checked at three levels. Each level has its own command and commit
 |---|---|
 | Unit and integration tests | 31/31 pass, offline |
 | Deterministic tool eval (real FAA data) | 29/29 cases pass; 29/29 deterministic; warm p50 5 ms, p95 15 ms; cold start 0.5 s; 50/50 concurrent calls succeed |
-| Agent eval (17 questions, local `muse-glimmer` agent, `gemma4:31b` judge) | Prompt v1: 94% exact match / 100% contains answer. Prompt v2: 100% exact match. Both 100% in scope. |
+| Agent eval (17 questions, local `muse-glimmer` agent, `gemma4:31b` judge) | Prompt v1: 94% exact match / 100% contains answer. Prompt v2: 100% exact match. Both 100% in scope. No-tool baseline: 59% exact match — the server is worth +41 points. |
 
 ### 1. Unit and integration tests – `tests/`
 
@@ -176,8 +176,9 @@ A LangChain agent connected to the server in-memory answers the 17 questions in
 - a non-existent airport
 - an out-of-scope weather request
 
-Every answer was verified against the data. Two prompt versions are compared, and each answer gets
-three scores, all recorded in [Arize Phoenix](https://docs.arize.com/phoenix):
+Every answer was verified against the data. Three configurations are compared — a no-tool baseline
+(the same agent with the server detached) and prompt versions v1 and v2 — and each answer gets three
+scores, all recorded in [Arize Phoenix](https://docs.arize.com/phoenix):
 
 - **exact match** (headline; normalized, unit- and format-tolerant)
 - **contains answer** (separates formatting failures from reasoning failures)
@@ -191,7 +192,9 @@ cd eval/phoenix
 uv run python create_dataset.py --dataset-name airport-eval
 uv run python run_experiment.py --system-prompt-version v1   # prints the experiment ID
 uv run python run_experiment.py --system-prompt-version v2
-uv run python generate_results_md.py --experiment v1=<ID> --experiment v2=<ID>
+# no-tool baseline: server detached, so the lift above is attributable to the server
+uv run python run_experiment.py --system-prompt-version baseline --no-tools --request-timeout 300
+uv run python generate_results_md.py --experiment baseline=<ID> --experiment v1=<ID> --experiment v2=<ID>
 uv run python run_eval_only.py --experiment-id <ID>          # re-score a stored experiment
 ```
 
