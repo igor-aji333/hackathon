@@ -5,6 +5,7 @@ from fastmcp import Client
 
 from airport_mcp.repository import AirportRepository
 from airport_mcp.server import create_server
+from airport_mcp.tools import TOOL_MODULES
 from conftest import FakeDownloader
 
 
@@ -24,6 +25,14 @@ async def test_tools_publish_output_schemas(client):
     assert set(tools) == {"airport_search", "airport_get_runways", "airport_find_nearby"}
     assert all(tool.output_schema for tool in tools.values())
     assert all(tool.annotations.read_only_hint for tool in tools.values())
+
+
+async def test_each_tool_comes_from_the_script_that_shares_its_name(client):
+    """One tool per script: a module registers exactly one tool, named after the module."""
+    registered = [tool.name for tool in await client.list_tools()]
+    scripts = [module.__name__.rsplit(".", 1)[-1] for module in TOOL_MODULES]
+
+    assert sorted(scripts) == sorted(registered)
 
 
 @pytest.mark.parametrize(

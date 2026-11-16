@@ -6,6 +6,8 @@ Every tool:
 - includes `data_cycle`, the effective date of the FAA NASR cycle that answered
 - is annotated `readOnlyHint`, `idempotentHint`, and `openWorldHint: false`
 - reports failures as MCP tool errors (`isError: true`). The message says what to do next.
+- is defined by one script of the same name under [`airport_mcp/tools/`](airport_mcp/tools), which
+  holds its description, parameter validation and output model
 
 Units: lengths and elevations are in **feet**, distances in **nautical miles**, and alignments and
 bearings in **true degrees**.

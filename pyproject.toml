@@ -52,7 +52,7 @@ eval = [
 ]
 
 [tool.setuptools]
-packages = ["airport_mcp"]
+packages = ["airport_mcp", "airport_mcp.tools"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

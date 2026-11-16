@@ -42,7 +42,7 @@ Identifiers are forgiving: FAA codes (`JFK`, `1N7`), US ICAO codes (`KJFK`), and
 ```
 airport_mcp/
 ├── server.py      # FastMCP app: instructions, pre-warm lifespan, /health, transport selection
-├── tools.py       # Agent-facing tool definitions: names, descriptions, validated parameters, error mapping
+├── tools/         # One script per agent-facing tool (see below)
 ├── models.py      # Pydantic output models (become each tool's outputSchema)
 ├── queries.py     # Pure query logic over an in-memory dataset (search ranking, filters, haversine)
 ├── dataset.py     # Immutable, indexed snapshot of one NASR cycle + identifier resolution
@@ -55,6 +55,31 @@ airport_mcp/
 Each layer depends only on the ones below it. `queries.py` has no I/O, so it can be unit-tested
 against small fixture tables, and the repository takes its storage and downloader as injected
 dependencies.
+
+### One tool per script
+
+Each tool is a self-contained script named after the tool it publishes, so the file you open is
+the whole contract an agent sees — name, title, description, parameter validation and output model:
+
+```
+airport_mcp/tools/
+├── __init__.py              # Registry: TOOL_MODULES, register_tools(mcp, repository)
+├── common.py                # Shared read-only annotations, identifier pattern, ToolContext
+├── airport_search.py        # → tool airport_search
+├── airport_get_runways.py   # → tool airport_get_runways
+└── airport_find_nearby.py   # → tool airport_find_nearby
+```
+
+Every script exposes one function, `register(mcp, context)`, and receives a `ToolContext` rather
+than the repository, so no tool knows how a cycle is loaded or how domain errors become MCP errors:
+`ToolContext.run()` resolves the current dataset, runs the query in a worker thread, and translates
+`AirportNotFoundError`, `InvalidQueryError` and data outages into `ToolError`.
+
+Adding a tool means adding one script and one entry in `TOOL_MODULES`. The registration order in
+that tuple is the order tools are advertised to clients, so it follows the workflow in the server
+instructions: resolve an identifier, ask about one airport, then compare airports in an area.
+`tests/test_tools.py` asserts that the set of registered tools matches the set of scripts, so a
+script that registers two tools — or a tool whose name drifts from its filename — fails the suite.
 
 ### Reliability
 
@@ -87,7 +112,7 @@ uv run airport-mcp                                    # stdio (default; for desk
 MCP_TRANSPORT=streamable-http uv run airport-mcp      # http://127.0.0.1:8000/mcp  (+ /health)
 ```
 
-The first start downloads the ~9 MB FAA archive and takes a few seconds. Later starts load the
+The first start downloads the ~8.5 MB FAA archive and takes a few seconds. Later starts load the
 Parquet cache in about 0.5 s.
 
 ### Configuration
@@ -123,7 +148,7 @@ The server is checked at three levels. Each level has its own command and commit
 
 | Level | Result |
 |---|---|
-| Unit and integration tests | 31/31 pass, offline |
+| Unit and integration tests | 32/32 pass, offline |
 | Deterministic tool eval (real FAA data) | 29/29 cases pass; 29/29 deterministic; warm p50 5 ms, p95 15 ms; cold start 0.5 s; 50/50 concurrent calls succeed |
 | Agent eval (17 questions, local `muse-glimmer` agent, `gemma4:31b` judge) | Prompt v1: 94% exact match / 100% contains answer. Prompt v2: 100% exact match. Both 100% in scope. No-tool baseline: 59% exact match — the server is worth +41 points. |
 
@@ -142,6 +167,7 @@ They cover:
   failure keeping the stale cycle, cold-start fallback, and cycle-consistent cache keys.
 - Every tool through a real MCP client: output schemas, annotations, `isError` on bad input,
   ICAO/FAA resolution, filters, and search ranking.
+- The tool registry: every registered tool is backed by the script that shares its name.
 
 ### 2. Deterministic tool evaluation – `eval/tool_eval/` → [eval/TOOL_EVAL_RESULTS.md](eval/TOOL_EVAL_RESULTS.md)
 
