@@ -55,8 +55,8 @@ class Runway(BaseModel):
     runway_id: str = Field(description="Runway designator, e.g. '04L/22R'; helipads are 'H1', 'H2', ...")
     length_ft: Optional[int] = None
     width_ft: Optional[int] = None
-    surface: Optional[str] = Field(None, description="FAA surface code(s): CONC, ASPH, PEM (part paved), TURF, DIRT, GRVL, WATER, MATS, ... Compound values like 'ASPH-CONC'.")
-    is_paved: bool = Field(description="True if any surface component is CONC, ASPH, PEM, or treated.")
+    surface: Optional[str] = Field(None, description="FAA surface code(s): CONC, ASPH, PEM (part bitumen-bound), TRTD (oiled or stabilized soil), TURF, DIRT, GRVL, WATER, MATS, ... A compound value like 'ASPH-CONC' means the runway has distinct sections of each.")
+    is_paved: bool = Field(description="True if any surface component is bound pavement: CONC, ASPH, or PEM. Treated (oiled or stabilized soil), gravel, turf, dirt and water are not paved.")
     is_helipad: bool
     condition: Optional[str] = Field(None, description="Pavement condition: EXCELLENT, GOOD, FAIR, POOR, or FAILED.")
     edge_lighting: Optional[str] = Field(None, description="Runway edge light intensity: HIGH, MED, LOW, NSTD (non-standard), PERI (perimeter), FLD (flood), STRB.")

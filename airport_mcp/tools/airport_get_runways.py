@@ -30,7 +30,7 @@ def register(mcp: FastMCP, context: ToolContext) -> None:
             description="Only return runways at least this long, in feet.", ge=0,
         )] = None,
         paved_only: Annotated[bool, Field(
-            description="Only return paved runways (concrete, asphalt, partially paved, or treated).",
+            description="Only return paved runways (concrete, asphalt, or partially bitumen-bound).",
         )] = False,
         include_helipads: Annotated[bool, Field(description="Include helipads (IDs H1, H2, ...).")] = True,
     ) -> AirportRunways:

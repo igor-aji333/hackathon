@@ -7,7 +7,12 @@ from typing import Optional
 
 import pandas as pd
 
-PAVED_SURFACES = frozenset({"CONC", "ASPH", "PEM", "TRTD", "TREATED"})
+# Bound pavement only. The FAA defines CONC as portland cement concrete and ASPH as asphalt or
+# bituminous concrete; PEM is undefined in the NASR record layout but is published for runways that
+# are part bitumen-bound macadam. TREATED/TRTD is deliberately excluded: the FAA defines it as
+# "oiled; soil cement or lime stabilized", which is stabilized soil rather than pavement, and it
+# appears almost entirely on gravel and dirt runways (GRVL-TRTD, DIRT-TRTD).
+PAVED_SURFACES = frozenset({"CONC", "ASPH", "PEM"})
 # Precision approaches with vertical guidance (localizer-only, LDA, and SDF are excluded).
 ILS_TYPES = frozenset({"ILS", "ILS/DME", "LOC/GS"})
 _HELIPAD_ID = re.compile(r"^H\d")

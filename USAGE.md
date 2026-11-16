@@ -60,7 +60,7 @@ Returns every runway at one airport, with both runway ends nested, in a single c
 |---|---|---|---|
 | `airport_id` | string | required | FAA (`JFK`, `1N7`) or ICAO (`KJFK`, `PANC`), case-insensitive. |
 | `min_length_ft` | int ≥ 0 | – | Only runways at least this long. |
-| `paved_only` | bool | `false` | Concrete, asphalt, partially paved or treated surfaces. |
+| `paved_only` | bool | `false` | Bound pavement only: `CONC`, `ASPH` or `PEM`. Treated (oiled or stabilized soil), gravel, turf and dirt do not count. |
 | `include_helipads` | bool | `true` | Helipads have IDs `H1`, `H2`, … |
 
 `total_runways` is always the count before filters are applied.
@@ -143,7 +143,7 @@ Unexpected internal errors are masked (`mask_error_details`), so stack traces ne
 
 | Field | Values |
 |---|---|
-| `surface` | `CONC` concrete, `ASPH` asphalt, `PEM` partially paved, `TURF`, `DIRT`, `GRVL` gravel, `WATER`, `MATS`, … Compound values such as `ASPH-CONC` are possible. |
+| `surface` | `CONC` concrete, `ASPH` asphalt, `PEM` part bitumen-bound, `TRTD` oiled or stabilized soil, `TURF`, `DIRT`, `GRVL` gravel, `WATER`, `MATS`, … A compound value such as `ASPH-CONC` or `GRVL-TRTD` means the runway has distinct sections of each; `is_paved` is true if any section is `CONC`, `ASPH` or `PEM`. |
 | `condition` | `EXCELLENT`, `GOOD`, `FAIR`, `POOR`, `FAILED` |
 | `edge_lighting` | `HIGH`, `MED`, `LOW`, `NSTD` (non-standard), `PERI` (perimeter), `FLD` (flood), `STRB` (strobe) |
 | `approach_lighting` | e.g. `ALSF2`, `MALSR`, `MALSF`, `SSALR`, `ODALS`, `RLLS` |

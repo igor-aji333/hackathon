@@ -148,8 +148,8 @@ The server is checked at three levels. Each level has its own command and commit
 
 | Level | Result |
 |---|---|
-| Unit and integration tests | 32/32 pass, offline |
-| Deterministic tool eval (real FAA data) | 29/29 cases pass; 29/29 deterministic; warm p50 5 ms, p95 15 ms; cold start 0.5 s; 50/50 concurrent calls succeed |
+| Unit and integration tests | 33/33 pass, offline |
+| Deterministic tool eval (real FAA data) | 29/29 cases pass; 29/29 deterministic; warm p50 5 ms, p95 16 ms; cold start 0.5 s; 50/50 concurrent calls succeed |
 | Agent eval (17 questions, local `muse-glimmer` agent, `gemma4:31b` judge) | Prompt v1: 94% exact match / 100% contains answer. Prompt v2: 100% exact match. Both 100% in scope. No-tool baseline: 59% exact match — the server is worth +41 points. |
 
 ### 1. Unit and integration tests – `tests/`
@@ -168,6 +168,8 @@ They cover:
 - Every tool through a real MCP client: output schemas, annotations, `isError` on bad input,
   ICAO/FAA resolution, filters, and search ranking.
 - The tool registry: every registered tool is backed by the script that shares its name.
+- Surface classification: only bound pavement (`CONC`, `ASPH`, `PEM`) counts as paved — FAA `TRTD`
+  ("oiled; soil cement or lime stabilized") does not, on its own or in a compound like `GRVL-TRTD`.
 
 ### 2. Deterministic tool evaluation – `eval/tool_eval/` → [eval/TOOL_EVAL_RESULTS.md](eval/TOOL_EVAL_RESULTS.md)
 
